@@ -14,7 +14,7 @@ pip install -r requirements.txt
 Copy-Item .env.example .env
 ```
 
-Put your credentials in `.env`. Never commit that file. `GROQ_API_KEY` is always required. For publishing runs, also set `WP_SITE_URL`, `WP_AUTH_TOKEN` (a WordPress JWT bearer token), and `INDEXNOW_KEY`.
+Put your credentials in `.env`. Never commit that file. `GROQ_API_KEY` is always required. `GROQ_MODEL` defaults to `openai/gpt-oss-120b` and can be changed to another model enabled for your Groq account. For publishing runs, also set `WP_SITE_URL`, `WP_AUTH_TOKEN` (a WordPress JWT bearer token), and `INDEXNOW_KEY`.
 Put your credentials in `.env`. Never commit that file. `GROQ_API_KEY` is always required. For publishing runs, also set `WP_SITE_URL`, `WP_AUTH_TOKEN` (a WordPress JWT bearer token), and `INDEXNOW_KEY`.
 
 IndexNow requires a publicly reachable text file containing the same key. Host it at `https://your-site.example/<key>.txt`, or set `INDEXNOW_KEY_LOCATION` to the public URL where you host that file.

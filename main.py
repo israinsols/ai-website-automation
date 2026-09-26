@@ -19,7 +19,7 @@ ROOT = Path(__file__).resolve().parent
 KEYWORDS_PATH = ROOT / "keywords.json"
 STATE_PATH = ROOT / "data" / "used_keywords.json"
 INDEXNOW_URL = "https://api.indexnow.org/indexnow"
-MODEL = "llama-3.3-70b-versatile"
+DEFAULT_MODEL = "openai/gpt-oss-120b"
 ALLOWED_TAGS = {"h1", "h2", "h3", "p", "ul", "li", "strong", "em"}
 BLOCKED_TAGS = {"script", "style", "iframe", "object"}
 
@@ -154,41 +154,63 @@ def response_schema():
 
 
 def generate_article(client, keyword):
-    prompt = f"""Create an original, useful SEO blog article targeting this exact keyword: {keyword!r}.
+    model_id = os.getenv("GROQ_MODEL", DEFAULT_MODEL).strip() or DEFAULT_MODEL
+    sections = [
+        "Write the introduction followed by exactly two h2 sections. Include the keyword exactly once in the introduction, within its first 100 words. Return article_title, meta_title, meta_description, and article_html. The article_title must contain the keyword; metadata limits are 60 and 155 characters.",
+        "Continue the same article with exactly three new h2 sections and no h1. Do not repeat the keyword in this segment. Return a JSON object with only article_html.",
+        "Continue with exactly two new h2 sections and a useful conclusion, no h1. Include the keyword exactly once naturally. Return a JSON object with only article_html.",
+    ]
+    html_segments = []
+    article = None
 
-Return only a valid JSON object with these string properties: article_title, meta_title, meta_description, article_html.
-Requirements:
-- article_html must contain 900-1300 words of article text and clean HTML only, using h1, h2, h3, p, ul, li, strong, and em tags. Include exactly one h1 matching article_title. Do not use markdown, code fences, CSS, or scripts.
-- Include the exact keyword naturally in article_title, in the first 100 words of article_html, and 2-3 additional times in the body. Avoid awkward repetition.
-- meta_title must be at most 60 characters and include the keyword naturally.
-- meta_description must be at most 155 characters and accurately summarize the article while including the keyword naturally.
-- Use a clear introduction, descriptive subheadings, practical detail, and a useful conclusion. Do not invent statistics or citations.
-- Keep the content relevant to the keyword and readable for a general audience.
+    for segment_index, section_instruction in enumerate(sections):
+        prior_context = "\n".join(html_segments)[-3500:]
+        prompt = f"""Write segment {segment_index + 1} of 3 for an original, useful SEO article about the exact keyword {keyword!r}.
 
-JSON shape: {json.dumps(response_schema())}"""
+{section_instruction}
 
-    last_error = None
-    for attempt in range(3):
-        try:
-            completion = client.chat.completions.create(
-                model=MODEL,
-                messages=[
-                    {"role": "system", "content": "You are an experienced SEO editor. Follow output constraints exactly."},
-                    {"role": "user", "content": prompt},
-                ],
-                temperature=0.65,
-                response_format={"type": "json_object"},
-            )
-            raw = completion.choices[0].message.content
-            article = json.loads(raw)
-            article["article_html"] = sanitize_article_html(article["article_html"])
-            validate_article(article, keyword)
-            return article
-        except Exception as exc:
-            last_error = exc
-            if attempt < 2:
-                prompt += "\nYour previous response failed validation. Correct all constraints, especially word count, keyword placement, and metadata lengths."
-    raise RuntimeError(f"Groq could not produce a valid article after 3 attempts: {last_error}") from last_error
+This segment must contain 320-450 words of article text; aim for about 370 words. Use clean HTML tags only: h1, h2, h3, p, ul, li, strong, em. Write specific, practical detail. Do not use markdown, code fences, CSS, or scripts. Avoid fabricated statistics or citations.
+Previously generated article context, for continuity only:
+{prior_context or "No earlier sections."}
+
+Return valid JSON only. Use JSON-escaped strings. The article_html value must contain this segment's HTML."""
+
+        last_error = None
+        segment = None
+        for attempt in range(3):
+            try:
+                completion = client.chat.completions.create(
+                    model=model_id,
+                    messages=[
+                        {"role": "system", "content": "You are an experienced SEO editor. Return only the requested JSON object."},
+                        {"role": "user", "content": prompt},
+                    ],
+                    temperature=0.65,
+                    max_completion_tokens=3000,
+                    reasoning_effort="low",
+                    response_format={"type": "json_object"},
+                )
+                segment = json.loads(completion.choices[0].message.content)
+                html_value = sanitize_article_html(segment["article_html"])
+                word_count = len(re.findall(r"\b[\w’'-]+\b", article_text(html_value), flags=re.UNICODE))
+                if not 320 <= word_count <= 450:
+                    raise RuntimeError(f"Segment has {word_count} words; expected 320-450.")
+                segment["article_html"] = html_value
+                break
+            except Exception as exc:
+                last_error = exc
+                if attempt < 2:
+                    prompt += f"\nThe previous response failed: {exc}. Return the requested valid JSON with 320-450 words of HTML text."
+        else:
+            raise RuntimeError(f"Groq could not generate article segment {segment_index + 1}: {last_error}") from last_error
+
+        if segment_index == 0:
+            article = {key: segment.get(key, "") for key in ("article_title", "meta_title", "meta_description")}
+        html_segments.append(segment["article_html"])
+
+    article["article_html"] = "\n".join(html_segments)
+    validate_article(article, keyword)
+    return article
 
 
 def sanitize_article_html(value):
@@ -219,7 +241,11 @@ def validate_article(article, keyword):
     title = article["article_title"].strip()
     meta_title = article["meta_title"].strip()
     meta_description = article["meta_description"].strip()
-    text = article_text(article["article_html"])
+    headings = re.findall(r"<h1>(.*?)</h1>", article["article_html"], flags=re.IGNORECASE | re.DOTALL)
+    if len(headings) != 1 or article_text(headings[0]).casefold() != title.casefold():
+        raise RuntimeError("Article HTML must contain exactly one h1 matching article_title.")
+    body_html = re.sub(r"<h1>.*?</h1>", "", article["article_html"], count=1, flags=re.IGNORECASE | re.DOTALL)
+    text = article_text(body_html)
     words = re.findall(r"\b[\w’'-]+\b", text, flags=re.UNICODE)
     if not 900 <= len(words) <= 1300:
         raise RuntimeError(f"Article has {len(words)} words; expected 900-1300.")
@@ -227,14 +253,14 @@ def validate_article(article, keyword):
         raise RuntimeError(f"Meta title has {len(meta_title)} characters; maximum is 60.")
     if len(meta_description) > 155:
         raise RuntimeError(f"Meta description has {len(meta_description)} characters; maximum is 155.")
-    if keyword.casefold() not in title.casefold() or keyword.casefold() not in meta_title.casefold():
-        raise RuntimeError("The keyword must appear in both the article title and meta title.")
+    if any(keyword.casefold() not in value.casefold() for value in (title, meta_title, meta_description)):
+        raise RuntimeError("The keyword must appear in the article title, meta title, and meta description.")
     first_100_words = " ".join(words[:100])
     if keyword.casefold() not in first_100_words.casefold():
-        raise RuntimeError("The keyword must appear in the first 100 article words.")
+        raise RuntimeError("The keyword must appear in the first 100 body words.")
     occurrences = keyword_occurrences(text, keyword)
     if not 3 <= occurrences <= 4:
-        raise RuntimeError(f"The keyword appears {occurrences} times in the article; expected 3-4.")
+        raise RuntimeError(f"The keyword appears {occurrences} times in the body; expected 3-4.")
 
 
 def publish_article(site_url, token, article):
