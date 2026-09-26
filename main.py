@@ -19,7 +19,7 @@ ROOT = Path(__file__).resolve().parent
 KEYWORDS_PATH = ROOT / "keywords.json"
 STATE_PATH = ROOT / "data" / "used_keywords.json"
 INDEXNOW_URL = "https://api.indexnow.org/indexnow"
-DEFAULT_MODEL = "openai/gpt-oss-120b"
+DEFAULT_MODEL = "llama-3.3-70b-versatile"
 ALLOWED_TAGS = {"h1", "h2", "h3", "p", "ul", "li", "strong", "em"}
 BLOCKED_TAGS = {"script", "style", "iframe", "object"}
 
