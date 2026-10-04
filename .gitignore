@@ -1,6 +1,17 @@
 .env
+.env.tech
 .venv/
 __pycache__/
 *.py[cod]
 data/used_keywords.json
 data/used_keywords.tmp
+data/pending_wordpress_article.json
+data/pending_wordpress_article.tmp
+data/dashboard_articles.json
+data/dashboard_articles.tmp
+data/site.sqlite3*
+data/tech.sqlite3*
+data/tech_used_keywords.json
+data/tech_used_keywords.tmp
+data/tech_pending_wordpress_article.json
+data/tech_pending_wordpress_article.tmp

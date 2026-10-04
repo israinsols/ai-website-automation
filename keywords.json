@@ -1,10 +1,33 @@
-[
-  "AI website automation",
-  "automated website content workflows",
-  "AI tools for website maintenance",
-  "small business website automation",
-  "automating WordPress content publishing",
-  "AI website operations best practices",
-  "website automation for marketing teams",
-  "how to automate repetitive website tasks"
-]
+{
+  "default_niche": "home-decor",
+  "niches": {
+    "home-decor": {
+      "keywords": [
+        "small living room decor ideas",
+        "modern home decor ideas",
+        "interior design ideas for apartments",
+        "best bedroom decor ideas",
+        "home styling tips for cozy spaces",
+        "small apartment interior design",
+        "living room styling ideas",
+        "kitchen decor ideas for modern homes",
+        "budget home decor ideas",
+        "interior design trends for 2026"
+      ]
+    },
+    "tech": {
+      "keywords": [
+        "best productivity apps for remote work",
+        "how to secure your home wifi network",
+        "best budget laptops for students",
+        "smart home setup for beginners",
+        "how to back up photos safely",
+        "ai tools for small businesses",
+        "best note taking apps for teams",
+        "how to improve phone battery life",
+        "beginner guide to password managers",
+        "cloud storage comparison for families"
+      ]
+    }
+  }
+}

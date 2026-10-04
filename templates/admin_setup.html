@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Create admin account | {{ site_name }}</title>
+    <meta name="robots" content="noindex,nofollow">
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+  </head>
+  <body class="workspace-body login-body">
+    <main class="login-panel">
+      <a class="workspace-brand" href="{{ url_for('home') }}"><span class="brand-mark">{{ site_name[:1] }}</span><span>{{ site_name }}<small>CONTENT STUDIO</small></span></a>
+      <p class="eyebrow">ONE-TIME LOCAL SETUP</p>
+      <h1>Create the owner account.</h1>
+      {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}<div class="flash-stack">{% for category, message in messages %}<div class="flash flash-{{ category }}">{{ message }}</div>{% endfor %}</div>{% endif %}
+      {% endwith %}
+      <form class="login-form" method="post">
+        <input type="hidden" name="_csrf_token" value="{{ csrf_token }}">
+        <label for="username">Admin username</label><input id="username" name="username" autocomplete="username" minlength="3" maxlength="40" required>
+        <label for="password">Password (at least 16 characters)</label><input id="password" name="password" type="password" autocomplete="new-password" minlength="16" maxlength="256" required>
+        <label for="confirm-password">Confirm password</label><input id="confirm-password" name="confirm_password" type="password" autocomplete="new-password" minlength="16" maxlength="256" required>
+        <button class="button button-primary" type="submit">Create account <span aria-hidden="true">→</span></button>
+      </form>
+    </main>
+  </body>
+</html>

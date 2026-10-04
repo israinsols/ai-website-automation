@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Admin sign in | {{ site_name }}</title>
+    <meta name="robots" content="noindex,nofollow">
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+  </head>
+  <body class="workspace-body login-body">
+    <main class="login-panel">
+      <a class="workspace-brand" href="{{ url_for('home') }}"><span class="brand-mark">{{ site_name[:1] }}</span><span>{{ site_name }}<small>CONTENT STUDIO</small></span></a>
+      <p class="eyebrow">ADMIN WORKSPACE</p>
+      <h1>Sign in to review content.</h1>
+      {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}<div class="flash-stack">{% for category, message in messages %}<div class="flash flash-{{ category }}">{{ message }}</div>{% endfor %}</div>{% endif %}
+      {% endwith %}
+      <form class="login-form" method="post">
+        <input type="hidden" name="_csrf_token" value="{{ csrf_token }}">
+        <label for="username">Username</label><input id="username" name="username" autocomplete="username" required>
+        <label for="password">Password</label><input id="password" name="password" type="password" autocomplete="current-password" required>
+        <button class="button button-primary" type="submit">Sign in <span aria-hidden="true">→</span></button>
+      </form>
+    </main>
+  </body>
+</html>
