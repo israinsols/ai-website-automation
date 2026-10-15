@@ -65,7 +65,7 @@ app.config.update(
     SESSION_COOKIE_SECURE=APP_ENV == "production",
 )
 ADMIN_PASSWORD_HASH = generate_password_hash(ADMIN_PASSWORD) if ADMIN_PASSWORD else ""
-ADMIN_ENDPOINTS = {"setup", "dashboard", "strategy", "calendar", "autopilot_settings", "keywords", "articles", "article_detail", "publish", "auto_article", "admin_backup", "traffic_report", "search_console_report", "sync_search_console_report", "site_manager", "manage_pages", "edit_site_page", "delete_site_page", "newsletter_settings", "remove_newsletter_subscriber", "site_overview", "image_library", "check_site_links"}
+ADMIN_ENDPOINTS = {"setup", "dashboard", "strategy", "calendar", "autopilot_settings", "keywords", "articles", "article_detail", "publish", "auto_article", "admin_backup", "traffic_report", "search_console_report", "sync_search_console_report", "site_manager", "manage_pages", "edit_site_page", "delete_site_page", "newsletter_settings", "remove_newsletter_subscriber", "client_accounts", "site_overview", "image_library", "check_site_links"}
 MAX_IMAGE_UPLOAD_BYTES = 8 * 1024 * 1024
 MAX_IMAGE_DIMENSION = 1800
 MAX_IMAGE_PIXELS = 40_000_000
@@ -1243,27 +1243,66 @@ def publish_article_record(article, records, published_by, published_at=None):
     clear_scheduled_publication(article)
     save_article(article)
     sent, failed = send_published_article_newsletter(article)
-    return sent, failed
+    client_email_sent = None
+    if article.get("client_id"):
+        client_email_sent = send_client_publication_notification(article)
+    return sent, failed, client_email_sent
 
 
-def publish_client_article_record(article, records, published_at=None):
-    article["topic_cluster"] = topic_cluster_for_keyword(
-        article.get("niche", ""), article.get("keyword", "")
-    ) or article.get("topic_cluster")
-    other_articles = [item for item in records if item.get("id") != article.get("id")]
-    article["slug"] = article_slug(article.get("article_title", "article"), other_articles)
-    publish_time = published_at or datetime.now().astimezone()
-    if publish_time.tzinfo is None:
-        publish_time = publish_time.astimezone()
-    article["status"] = "Published"
-    article["published_at"] = publish_time.isoformat(timespec="minutes")
-    article["source"] = "Client account auto-published"
-    article.pop("editorial_reviewed_at", None)
-    article.pop("editorial_reviewed_by", None)
-    clear_scheduled_publication(article)
-    save_article(article)
-    sent, failed = send_published_article_newsletter(article)
-    return sent, failed
+def send_editorial_submission_notification(article):
+    recipient = (
+        os.getenv("EDITORIAL_NOTIFICATION_EMAIL", "").strip()
+        or os.getenv("CONTACT_EMAIL", "").strip()
+    )
+    if not re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", recipient):
+        app.logger.error(
+            "Could not email the editorial team about client article %s: "
+            "set EDITORIAL_NOTIFICATION_EMAIL or CONTACT_EMAIL.",
+            article.get("id"),
+        )
+        return False
+    try:
+        article_url = canonical_url("article_detail", article_id=article["id"])
+        body = (
+            f"{article.get('author') or 'A client'} submitted an article for editorial review.\n\n"
+            f"Article: {article.get('article_title', 'Untitled article')}\n"
+            f"Client email: {article.get('contributor_email', 'Not provided')}\n"
+            f"Review in the admin workspace: {article_url}\n"
+        )
+        send_newsletter_email(
+            recipient,
+            f"Client article needs review: {article.get('article_title', 'Untitled article')}",
+            body,
+        )
+        return True
+    except (OSError, requests.RequestException, smtplib.SMTPException, RuntimeError, ValueError, sqlite3.Error):
+        app.logger.exception("Could not email the editorial team about a client article")
+        return False
+
+
+def send_client_publication_notification(article):
+    recipient = article.get("contributor_email", "").strip()
+    if not re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", recipient):
+        app.logger.error("Cannot notify client about publication: article %s has no valid email.", article.get("id"))
+        return False
+    try:
+        article_url = canonical_url("public_article", slug=article.get("slug", ""))
+        site_name = load_site_settings()["site_name"]
+        body = (
+            f"Hi {article.get('author') or 'there'},\n\n"
+            f"Your article “{article.get('article_title', 'Your article')}” has been reviewed and published on "
+            f"{site_name}.\n\n"
+            f"View your published article: {article_url}\n"
+        )
+        send_newsletter_email(
+            recipient,
+            f"Your article has been published on {site_name}",
+            body,
+        )
+        return True
+    except (OSError, requests.RequestException, smtplib.SMTPException, RuntimeError, ValueError, sqlite3.Error):
+        app.logger.exception("Could not email client about published article %s", article.get("id"))
+        return False
 
 
 def reserve_scheduled_publication_run(now):
@@ -1315,6 +1354,7 @@ def run_due_scheduled_publications(now=None):
         records = load_articles()
         for article in records:
             if (article.get("status") not in {"Draft", "Pending Review"}
+                    or (article.get("client_id") and article.get("status") != "Pending Review")
                     or article.get("scheduled_publish_approved") is not True):
                 continue
             scheduled_value = article.get("scheduled_publish_at")
@@ -1334,7 +1374,7 @@ def run_due_scheduled_publications(now=None):
                 continue
             try:
                 approved_by = article.get("scheduled_publish_approved_by") or "Site editor"
-                sent, failed = publish_article_record(
+                sent, failed, client_email_sent = publish_article_record(
                     article,
                     records,
                     approved_by,
@@ -1357,6 +1397,11 @@ def run_due_scheduled_publications(now=None):
                 else:
                     app.logger.info(
                         "Scheduled article %s published without confirmed newsletter subscribers.",
+                        article.get("id", ""),
+                    )
+                if client_email_sent is False:
+                    app.logger.error(
+                        "Scheduled client article %s was published, but its client notification email failed.",
                         article.get("id", ""),
                     )
             except Exception:
@@ -1807,6 +1852,45 @@ def client_account_by_id(client_id):
         connection.close()
 
 
+def load_client_accounts():
+    connection = sqlite3.connect(DATABASE_PATH, timeout=10)
+    try:
+        accounts = connection.execute(
+            "SELECT id, email, display_name, created_at FROM client_users ORDER BY created_at DESC"
+        ).fetchall()
+    finally:
+        connection.close()
+
+    articles_by_client = {}
+    for article in load_articles():
+        client_id = article.get("client_id")
+        if not client_id:
+            continue
+        summary = articles_by_client.setdefault(
+            client_id,
+            {"article_count": 0, "pending_count": 0, "published_count": 0},
+        )
+        summary["article_count"] += 1
+        if article.get("status") == "Pending Review":
+            summary["pending_count"] += 1
+        elif article.get("status") == "Published":
+            summary["published_count"] += 1
+
+    return [
+        {
+            "id": client_id,
+            "email": email,
+            "display_name": display_name,
+            "created_at": created_at,
+            **articles_by_client.get(
+                client_id,
+                {"article_count": 0, "pending_count": 0, "published_count": 0},
+            ),
+        }
+        for client_id, email, display_name, created_at in accounts
+    ]
+
+
 def client_articles(client_id):
     return sorted(
         (article for article in load_articles() if article.get("client_id") == client_id),
@@ -2087,7 +2171,7 @@ INFO_PAGES = {
         "description": SITE_DESCRIPTION,
         "sections": [
             ("What we cover", "Useful, clear guidance built around the site's active niche and its readers' real questions."),
-            ("How we work", "We aim to publish original, useful guidance. Articles submitted by client accounts can be published immediately after the contributor confirms publication rights; those articles are identified as not independently reviewed."),
+            ("How we work", "We aim to publish original, useful guidance. Articles submitted by client accounts are reviewed by the editorial team and published only after approval."),
         ],
     },
     "contact": {
@@ -2101,7 +2185,7 @@ INFO_PAGES = {
         "title": "Your information and submitted content.",
         "description": "This page describes the current local prototype and must be reviewed before a public launch.",
         "sections": [
-            ("Article submissions", "Client account names, contact emails, article text, source URLs, and reprint-permission records are stored in SQLite and included in database backups. Articles a client chooses to publish are immediately public and may not receive independent editorial review. Contact the site owner for access, correction, or removal requests."),
+            ("Article submissions", "Client account names, contact emails, article text, source URLs, and reprint-permission records are stored in SQLite and included in database backups. Client contact emails are used to notify clients when articles are published; the editorial team is notified when a submission enters review. Articles remain private until an admin approves publication. Contact the site owner for access, correction, or removal requests."),
             ("Newsletter", "If newsletter signup is enabled, your email address is stored in this site's SQLite database while your confirmation is pending or you remain subscribed. Signup requires email confirmation. Confirmed subscribers receive an email when a new article is published. Each email includes an unsubscribe link; you can also contact the site owner to request removal."),
             ("Abuse prevention", "A keyed hash of a submitter email is used for a short-term submission limit; expired hashes are pruned when a later submission is processed. The site does not store visitor IP addresses for this purpose."),
             ("Traffic reporting", "The workspace stores daily aggregate page-view counts by public page. It does not store IP addresses, referrers, user agents, or cookies for analytics, and these counts are not unique visitors or Search Console clicks."),
@@ -2117,8 +2201,8 @@ INFO_PAGES = {
         "title": "Useful, relevant, and reviewed.",
         "description": "We consider home and interior articles that give readers specific, original help.",
         "sections": [
-            ("Publication and review", "Client account articles are published immediately after the contributor confirms they own the work or have authority to grant publication rights. These articles are identified as not independently reviewed. Other content managed by the editorial team is reviewed for relevance, originality, clarity, factual support, and appropriate sourcing before publication."),
-            ("AI-assisted articles", "AI tools may assist with drafting. Articles published automatically are identified as such, and a human review is only shown when a reviewer and review date are recorded."),
+            ("Publication and review", "Client account articles remain private until an admin reviews and approves them for publication. Contributors must confirm they own the work or have authority to grant publication rights. Other content managed by the editorial team is also reviewed for relevance, originality, clarity, factual support, and appropriate sourcing before publication."),
+            ("AI-assisted articles", "AI tools may assist with drafting. AI-generated client articles enter the editorial review queue and are published only after admin approval; a human review is shown when a reviewer and review date are recorded."),
             ("Reprint permission", "Submitters must own the submitted work or have authority to license it. By publishing, they grant the publication a non-exclusive, royalty-free license to reproduce, display, format, and promote the article on its website. They confirm that submitted details and permissions are accurate. Publication does not guarantee traffic or rankings."),
             ("Syndicated articles", "If the same article is already published elsewhere, submitters must provide its original URL. They may request that our copy use that URL as its canonical; the publication may correct canonical metadata when needed."),
             ("Commercial relationships", "Paid, gifted, or otherwise sponsored relationships must be disclosed clearly. Editorial inclusion does not promise traffic, rankings, or sales."),
@@ -2135,8 +2219,8 @@ def build_faq_schema(page_key):
             ("How do you choose what to publish?", "We prioritize useful, original guidance and clear, trustworthy advice that helps real readers."),
         ],
         "contact": [
-            ("How do I submit an article?", "Create a client account, generate or write a draft, confirm your publication rights, and choose Publish now. The article appears on the blog immediately."),
-            ("Are client articles reviewed before publication?", "No. Client-published articles are identified as not independently reviewed. The contributor is responsible for confirming publication rights and submitted details."),
+            ("How do I submit an article?", "Create a client account, generate or write an article, confirm your publication rights, and submit it for editorial review. The editorial team will email you when it has been published."),
+            ("Are client articles reviewed before publication?", "Yes. A client article stays private until the editorial team reviews and approves it for publication."),
         ],
     }
     items = faq_map.get(page_key, [])
@@ -2475,7 +2559,11 @@ def save_client_draft(account, article=None):
     original_url = request.form.get("original_url", "").strip()
     client_website_url = request.form.get("client_website_url", "").strip()
     canonical_to_original = request.form.get("canonical_to_original") == "on"
-    publish_now = request.form.get("action") == "publish_now"
+    action = request.form.get("action", "")
+    submit_for_review = action == "submit_for_review"
+    if action not in {"save_draft", "submit_for_review"}:
+        flash("Choose Save draft or Submit for review.", "error")
+        return redirect(request.path)
     if not title or len(title) > 180 or not content or len(content) > 100000:
         flash("Add a title (up to 180 characters) and article text (up to 100,000 characters).", "error")
         return redirect(request.path)
@@ -2492,11 +2580,11 @@ def save_client_draft(account, article=None):
     if canonical_to_original and not original_url:
         flash("Add the original article URL before requesting an original canonical.", "error")
         return redirect(request.path)
-    if publish_now and request.form.get("rights_confirmed") != "on":
-        flash("Confirm that you have the rights to publish this article.", "error")
+    if submit_for_review and request.form.get("rights_confirmed") != "on":
+        flash("Confirm that you have the rights to submit this article for publication.", "error")
         return redirect(request.path)
-    if publish_now and not reserve_submission_slot(account["email"]):
-        flash("Your account has reached the hourly publishing limit. Try again later.", "error")
+    if submit_for_review and not reserve_submission_slot(account["email"]):
+        flash("Your account has reached the hourly submission limit. Try again later.", "error")
         return redirect(request.path)
 
     article_html = clean_submitted_content(content)
@@ -2518,28 +2606,29 @@ def save_client_draft(account, article=None):
         "niche": current_niche(),
         "topic_cluster": topic_cluster_for_keyword(current_niche(), keyword),
         "created_at": record.get("created_at", now),
-        "status": "Draft",
+        "status": "Pending Review" if submit_for_review else "Draft",
         "source": "Client account",
         "original_url": original_url,
         "client_website_url": client_website_url,
         "canonical_to_original": canonical_to_original,
     })
-    if publish_now:
+    if submit_for_review:
         record["reprint_permission_at"] = now
         record["reprint_terms_version"] = REPRINT_TERMS_VERSION
-        sent, failed = publish_client_article_record(record, articles_for_site_profile(), datetime.now().astimezone())
-        if failed:
+    save_article(record)
+    if submit_for_review:
+        if send_editorial_submission_notification(record):
             flash(
-                f"Your article is live, but newsletter delivery failed for {failed} subscriber(s). "
-                "Check SMTP settings and server logs.",
+                "Your article was submitted for editorial review. We will email you when it is published.",
+                "success",
+            )
+        else:
+            flash(
+                "Your article is pending editorial review, but we could not email the site team. "
+                "Please contact the site team directly.",
                 "error",
             )
-        elif sent:
-            flash(f"Your article is live. Newsletter sent to {sent} confirmed subscriber(s).", "success")
-        else:
-            flash("Your article is now live on the blog.", "success")
     else:
-        save_article(record)
         flash("Draft saved privately to your client account.", "success")
     return redirect(url_for("client_portal"))
 
@@ -2586,7 +2675,7 @@ def client_generate_article():
             "niche": current_niche(),
             "topic_cluster": topic_cluster_for_keyword(current_niche(), keyword),
             "created_at": now,
-            "status": "Draft",
+            "status": "Pending Review",
             "source": "Client AI-generated draft",
             "client_id": account["id"],
             "contributor_email": account["email"],
@@ -2595,13 +2684,25 @@ def client_generate_article():
             "article_html": remove_body_h1(article["article_html"]),
         }
         save_article(record)
+        editorial_email_sent = send_editorial_submission_notification(record)
     except Exception as exc:
         release_client_generation(account["id"])
         app.logger.exception("Could not generate a client article draft")
         flash(groq_error_message(exc), "error")
         return redirect(url_for("client_article_new"))
 
-    flash("Your AI-generated article is saved as a private draft. Review it, then publish it when you are ready.", "success")
+    if editorial_email_sent:
+        flash(
+            "Your AI-generated article was submitted for editorial review. "
+            "We will email you when it is published.",
+            "success",
+        )
+    else:
+        flash(
+            "Your AI-generated article is pending editorial review, but we could not email the site team. "
+            "Please contact the site team directly.",
+            "error",
+        )
     return redirect(url_for("client_article_detail", article_id=record["id"]))
 
 
@@ -2851,6 +2952,12 @@ def newsletter_settings():
     )
 
 
+@app.route("/admin/clients")
+def client_accounts():
+    accounts = load_client_accounts()
+    return render_template("workspace.html", page="client_accounts", client_accounts=accounts)
+
+
 @app.route("/admin/newsletter/remove", methods=["POST"])
 def remove_newsletter_subscriber():
     email = request.form.get("email", "").strip().casefold()
@@ -2935,7 +3042,7 @@ def newsletter_signup():
                 "If you did not request this, you can ignore this email."
             ),
         )
-    except (OSError, smtplib.SMTPException, RuntimeError):
+    except (OSError, requests.RequestException, smtplib.SMTPException, RuntimeError):
         app.logger.exception("Could not send newsletter confirmation email")
         flash("We could not send a confirmation email right now. Please try again later.", "error")
         return redirect(redirect_target)
@@ -3021,22 +3128,27 @@ def newsletter_unsubscribe(token):
 
 
 def newsletter_email_configured():
-    host = os.getenv("NEWSLETTER_SMTP_HOST", "").strip()
     sender = os.getenv("NEWSLETTER_FROM_EMAIL", "").strip()
-    security = os.getenv("NEWSLETTER_SMTP_SECURITY", "starttls").strip().lower()
     public_site_url = urlparse(os.getenv("PUBLIC_SITE_URL", "").strip())
+    common_configuration_valid = (
+        bool(re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", sender))
+        and public_site_url.scheme == "https" and public_site_url.netloc
+        and not public_site_url.username and not public_site_url.password
+        and public_site_url.path in {"", "/"} and not public_site_url.query and not public_site_url.fragment
+    )
+    if not common_configuration_valid:
+        return False
+    if os.getenv("RESEND_API_KEY", "").strip():
+        return True
+
+    host = os.getenv("NEWSLETTER_SMTP_HOST", "").strip()
+    security = os.getenv("NEWSLETTER_SMTP_SECURITY", "starttls").strip().lower()
     try:
         port = int(os.getenv("NEWSLETTER_SMTP_PORT", "587"))
     except ValueError:
         return False
     return (
-        bool(
-            host and re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", sender)
-            and public_site_url.scheme == "https" and public_site_url.netloc
-            and not public_site_url.username and not public_site_url.password
-            and public_site_url.path in {"", "/"} and not public_site_url.query and not public_site_url.fragment
-        )
-        and 1 <= port <= 65535 and security in {"starttls", "ssl", "none"}
+        bool(host) and 1 <= port <= 65535 and security in {"starttls", "ssl", "none"}
         and (security != "none" or not os.getenv("NEWSLETTER_SMTP_USERNAME", "").strip())
         and (
             bool(os.getenv("NEWSLETTER_SMTP_USERNAME", "").strip())
@@ -3047,7 +3159,29 @@ def newsletter_email_configured():
 
 def send_newsletter_email(recipient, subject, body):
     if not newsletter_email_configured():
-        raise RuntimeError("Configure NEWSLETTER_SMTP_HOST and NEWSLETTER_FROM_EMAIL to send newsletter email.")
+        raise RuntimeError(
+            "Configure RESEND_API_KEY or valid SMTP settings, NEWSLETTER_FROM_EMAIL, "
+            "and PUBLIC_SITE_URL to send email."
+        )
+    sender = os.getenv("NEWSLETTER_FROM_EMAIL", "").strip()
+    clean_subject = " ".join(subject.splitlines())[:200]
+    site_name = " ".join(load_site_settings()["site_name"].splitlines())
+    resend_api_key = os.getenv("RESEND_API_KEY", "").strip()
+    if resend_api_key:
+        response = requests.post(
+            "https://api.resend.com/emails",
+            headers={"Authorization": f"Bearer {resend_api_key}"},
+            json={
+                "from": formataddr((site_name, sender)),
+                "to": [recipient],
+                "subject": clean_subject,
+                "text": body,
+            },
+            timeout=20,
+        )
+        response.raise_for_status()
+        return
+
     host = os.getenv("NEWSLETTER_SMTP_HOST", "").strip()
     port = int(os.getenv("NEWSLETTER_SMTP_PORT", "587"))
     security = os.getenv("NEWSLETTER_SMTP_SECURITY", "starttls").strip().lower()
@@ -3056,10 +3190,10 @@ def send_newsletter_email(recipient, subject, body):
     timeout = 20
 
     message = EmailMessage()
-    message["Subject"] = " ".join(subject.splitlines())[:200]
+    message["Subject"] = clean_subject
     message["From"] = formataddr((
-        " ".join(load_site_settings()["site_name"].splitlines()),
-        os.getenv("NEWSLETTER_FROM_EMAIL", "").strip(),
+        site_name,
+        sender,
     ))
     message["To"] = recipient
     message.set_content(body)
@@ -3097,7 +3231,7 @@ def send_published_article_newsletter(article):
     if not subscribers:
         return 0, 0
     if not newsletter_email_configured():
-        app.logger.error("Newsletter delivery skipped: SMTP settings are not configured.")
+        app.logger.error("Newsletter delivery skipped: Resend API or SMTP email settings are not configured.")
         return 0, len(subscribers)
 
     settings = load_site_settings()
@@ -3129,7 +3263,7 @@ def send_published_article_newsletter(article):
             finally:
                 connection.close()
             sent += 1
-        except (OSError, smtplib.SMTPException, RuntimeError, sqlite3.Error):
+        except (OSError, requests.RequestException, smtplib.SMTPException, RuntimeError, sqlite3.Error):
             app.logger.exception("Could not deliver newsletter article to a subscriber")
             failed += 1
     return sent, failed
@@ -3413,6 +3547,9 @@ def calendar():
         schedule_date = request.form.get("scheduled_for", "").strip()
         if article is None or article.get("status") not in {"Draft", "Pending Review"}:
             flash("Only drafts and submissions waiting for review can be scheduled.", "error")
+        elif (action == "schedule_publication" and article.get("client_id")
+                and article.get("status") != "Pending Review"):
+            flash("Client articles must be submitted for editorial review before they can be scheduled.", "error")
         elif action == "schedule_publication":
             publication_time = request.form.get("scheduled_publish_at", "").strip()
             if request.form.get("approve_scheduled_publication") != "on":
@@ -3825,7 +3962,10 @@ def publish(article_id):
     if article.get("status") not in {"Draft", "Pending Review"}:
         flash("Only drafts and reviewed submissions can be published.", "error")
         return redirect(url_for("article_detail", article_id=article_id))
-    sent, failed = publish_article_record(
+    if article.get("client_id") and article.get("status") != "Pending Review":
+        flash("Client articles must be submitted for editorial review before they can be published.", "error")
+        return redirect(url_for("article_detail", article_id=article_id))
+    sent, failed, client_email_sent = publish_article_record(
         article,
         records,
         session.get("admin_username", "Site editor"),
@@ -3835,10 +3975,17 @@ def publish(article_id):
             f"Article is live, but newsletter delivery failed for {failed} subscriber(s). Check SMTP settings and server logs.",
             "error",
         )
-    elif sent:
-        flash(f"Article is live. Newsletter sent to {sent} confirmed subscriber(s).", "success")
     else:
-        flash("Article is now live on your blog. No confirmed newsletter subscribers were available.", "success")
+        publication_message = (
+            f"Article is live. Newsletter sent to {sent} confirmed subscriber(s)."
+            if sent else "Article is live. No confirmed newsletter subscribers were available."
+        )
+        flash(publication_message, "success")
+    if client_email_sent is False:
+        flash(
+            "The article is published, but the client notification email failed. Check SMTP settings and server logs.",
+            "error",
+        )
     return redirect(url_for("article_detail", article_id=article_id))
 
 

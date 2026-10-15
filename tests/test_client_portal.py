@@ -36,7 +36,35 @@ class ClientPortalTests(unittest.TestCase):
             "confirm_password": "secure-client-password",
         })
 
-    def test_client_can_sign_up_save_private_draft_and_publish_immediately(self):
+    def test_editorial_submission_notification_is_sent_to_configured_team(self):
+        article = {
+            "id": "submitted-article",
+            "article_title": "A client submission",
+            "author": "Client Writer",
+            "contributor_email": "client@example.com",
+        }
+        with patch.dict(os.environ, {"EDITORIAL_NOTIFICATION_EMAIL": "editor@example.com"}), \
+                patch("app.send_newsletter_email") as send_email:
+            self.assertTrue(app.send_editorial_submission_notification(article))
+        self.assertEqual(send_email.call_args.args[0], "editor@example.com")
+        self.assertIn("A client submission", send_email.call_args.args[1])
+        self.assertIn("client@example.com", send_email.call_args.args[2])
+
+    def test_client_publication_notification_is_sent_to_contributor(self):
+        article = {
+            "id": "published-article",
+            "article_title": "A published client article",
+            "author": "Client Writer",
+            "contributor_email": "client@example.com",
+            "slug": "published-client-article",
+        }
+        with patch("app.send_newsletter_email") as send_email:
+            self.assertTrue(app.send_client_publication_notification(article))
+        self.assertEqual(send_email.call_args.args[0], "client@example.com")
+        self.assertIn("published", send_email.call_args.args[1].lower())
+        self.assertIn("published-client-article", send_email.call_args.args[2])
+
+    def test_client_can_save_draft_and_submit_for_admin_review(self):
         response = self.sign_up()
         self.assertEqual(response.status_code, 302)
         self.assertEqual(response.location, "/client")
@@ -70,45 +98,151 @@ class ClientPortalTests(unittest.TestCase):
         self.assertNotIn(b"A thoughtful client draft", public_blog.data)
         edit_url = f"/client/articles/{article['id']}"
         self.client.get(edit_url)
-        response = self.client.post(edit_url, data={
-            "_csrf_token": self.csrf_token(),
-            "title": article["article_title"],
-            "content": "This article is now ready to publish immediately.",
-            "keyword": article["keyword"],
-            "client_website_url": article["client_website_url"],
-            "rights_confirmed": "on",
-            "action": "publish_now",
-        })
+        with patch("app.send_editorial_submission_notification", return_value=True) as notification:
+            response = self.client.post(edit_url, data={
+                "_csrf_token": self.csrf_token(),
+                "title": article["article_title"],
+                "content": "This article is now ready for editorial review.",
+                "keyword": article["keyword"],
+                "client_website_url": article["client_website_url"],
+                "rights_confirmed": "on",
+                "action": "submit_for_review",
+            })
         self.assertEqual(response.status_code, 302)
         submitted = app.load_articles()[0]
-        self.assertEqual(submitted["status"], "Published")
-        self.assertTrue(submitted["slug"])
-        self.assertTrue(submitted["published_at"])
-        self.assertEqual(submitted["source"], "Client account auto-published")
-        self.assertNotIn("editorial_reviewed_at", submitted)
-        self.assertNotIn("editorial_reviewed_by", submitted)
+        self.assertEqual(submitted["status"], "Pending Review")
+        self.assertNotIn("published_at", submitted)
+        self.assertEqual(submitted["source"], "Client account")
         self.assertTrue(submitted["reprint_permission_at"])
+        self.assertEqual(submitted["reprint_terms_version"], app.REPRINT_TERMS_VERSION)
         self.assertEqual(submitted["client_website_url"], "https://client.example.com")
+        notification.assert_called_once_with(submitted)
+        self.assertNotIn(b"A thoughtful client draft", self.client.get("/blog").data)
+
+        admin_client = app.app.test_client()
+        with admin_client.session_transaction() as state:
+            state["admin_authenticated"] = True
+            state["admin_username"] = "site-editor"
+            state["_csrf_token"] = "admin-token"
+        with patch("app.send_published_article_newsletter", return_value=(1, 0)) as newsletter, \
+                patch("app.send_client_publication_notification", return_value=True) as client_notification:
+            response = admin_client.post(
+                f"/articles/{submitted['id']}/publish",
+                data={"_csrf_token": "admin-token"},
+            )
+        self.assertEqual(response.status_code, 302)
+        published = app.load_articles()[0]
+        self.assertEqual(published["status"], "Published")
+        self.assertTrue(published["slug"])
+        self.assertTrue(published["published_at"])
+        self.assertEqual(published["editorial_reviewed_by"], "site-editor")
+        newsletter.assert_called_once()
+        client_notification.assert_called_once()
         self.assertIn(b"published articles", self.client.get("/client").data)
         self.assertIn(b"A thoughtful client draft", self.client.get("/blog").data)
-        public_article = self.client.get(f"/blog/{submitted['slug']}")
-        self.assertEqual(public_article.status_code, 200)
-        self.assertIn(b"not recorded", public_article.data)
 
-    def test_client_must_confirm_rights_before_immediate_publication(self):
+    def test_client_must_confirm_rights_before_review_submission(self):
         self.sign_up()
         self.client.get("/client/articles/new")
         response = self.client.post("/client/articles/new", data={
             "_csrf_token": self.csrf_token(),
             "title": "Rights confirmation required",
             "content": "This article must remain private without permission confirmation.",
-            "action": "publish_now",
+            "action": "submit_for_review",
         })
         self.assertEqual(response.status_code, 302)
         self.assertEqual(app.load_articles(), [])
         self.assertNotIn(b"Rights confirmation required", self.client.get("/blog").data)
 
-    def test_ai_generated_draft_can_be_published_immediately_after_reviewing(self):
+    def test_failed_editorial_email_does_not_undo_pending_submission(self):
+        self.sign_up()
+        self.client.get("/client/articles/new")
+        with patch("app.send_editorial_submission_notification", return_value=False):
+            response = self.client.post("/client/articles/new", data={
+                "_csrf_token": self.csrf_token(),
+                "title": "Submission email failed",
+                "content": "This submission should remain in the review queue.",
+                "rights_confirmed": "on",
+                "action": "submit_for_review",
+            })
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(app.load_articles()[0]["status"], "Pending Review")
+        dashboard = self.client.get("/client")
+        self.assertIn(b"could not email the site team", dashboard.data)
+
+    def test_client_cannot_publish_a_draft_directly(self):
+        self.sign_up()
+        self.client.get("/client/articles/new")
+        response = self.client.post("/client/articles/new", data={
+            "_csrf_token": self.csrf_token(),
+            "title": "Client cannot publish",
+            "content": "This article must be reviewed before publication.",
+            "rights_confirmed": "on",
+            "action": "publish_now",
+        })
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(app.load_articles(), [])
+
+        self.client.post("/client/articles/new", data={
+            "_csrf_token": self.csrf_token(),
+            "title": "Private client draft",
+            "content": "The client should not be able to publish this draft.",
+            "action": "save_draft",
+        })
+        draft = app.load_articles()[0]
+        edit_url = f"/client/articles/{draft['id']}"
+        self.client.get(edit_url)
+        response = self.client.post(edit_url, data={
+            "_csrf_token": self.csrf_token(),
+            "title": draft["article_title"],
+            "content": draft["article_html"],
+            "rights_confirmed": "on",
+            "action": "publish_now",
+        })
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(app.load_articles()[0]["status"], "Draft")
+
+        admin_client = app.app.test_client()
+        with admin_client.session_transaction() as state:
+            state["admin_authenticated"] = True
+            state["admin_username"] = "site-editor"
+            state["_csrf_token"] = "admin-token"
+        response = admin_client.post(
+            f"/articles/{draft['id']}/publish",
+            data={"_csrf_token": "admin-token"},
+        )
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(app.load_articles()[0]["status"], "Draft")
+
+    def test_admin_publication_is_kept_when_client_notification_fails(self):
+        article = {
+            "id": "client-notification-failure",
+            "article_title": "Approved client article",
+            "niche": "home-decor",
+            "status": "Pending Review",
+            "client_id": "client-123",
+            "contributor_email": "client@example.com",
+            "created_at": "2026-10-15T10:00:00+00:00",
+            "article_html": "<p>Approved article text.</p>",
+        }
+        app.save_article(article)
+        admin_client = app.app.test_client()
+        with admin_client.session_transaction() as state:
+            state["admin_authenticated"] = True
+            state["admin_username"] = "site-editor"
+            state["_csrf_token"] = "admin-token"
+        with patch("app.send_published_article_newsletter", return_value=(0, 0)), \
+                patch("app.send_client_publication_notification", return_value=False):
+            response = admin_client.post(
+                f"/articles/{article['id']}/publish",
+                data={"_csrf_token": "admin-token"},
+            )
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(app.load_articles()[0]["status"], "Published")
+        detail = admin_client.get(response.location)
+        self.assertIn(b"client notification email failed", detail.data)
+
+    def test_ai_generated_article_is_submitted_for_review(self):
         self.sign_up()
         self.client.get("/client/articles/new")
         generated = {
@@ -117,7 +251,8 @@ class ClientPortalTests(unittest.TestCase):
             "meta_description": "Useful ideas for a comfortable small living room.",
             "article_html": "<h1>AI generated living room ideas</h1><p>Generated article text.</p>",
         }
-        with patch.dict(os.environ, {"GROQ_API_KEY": "test-groq-key"}), \
+        with patch("app.send_editorial_submission_notification", return_value=True) as notification, \
+                patch.dict(os.environ, {"GROQ_API_KEY": "test-groq-key"}), \
                 patch("app.Groq"), \
                 patch("app.engine.generate_article", return_value=generated):
             generated_response = self.client.post("/client/articles/generate", data={
@@ -126,31 +261,11 @@ class ClientPortalTests(unittest.TestCase):
             })
         self.assertEqual(generated_response.status_code, 302)
         article = app.load_articles()[0]
-        self.assertEqual(article["status"], "Draft")
+        self.assertEqual(article["status"], "Pending Review")
+        notification.assert_called_once_with(article)
         self.assertNotIn(b"AI generated living room ideas", self.client.get("/blog").data)
-
-        detail_url = f"/client/articles/{article['id']}"
-        self.client.get(detail_url)
-        with patch("app.send_published_article_newsletter", return_value=(1, 0)) as newsletter:
-            response = self.client.post(detail_url, data={
-                "_csrf_token": self.csrf_token(),
-                "title": article["article_title"],
-                "content": article["article_html"],
-                "keyword": article["keyword"],
-                "rights_confirmed": "on",
-                "action": "publish_now",
-            })
-        self.assertEqual(response.status_code, 302)
-        published = app.load_articles()[0]
-        self.assertEqual(published["status"], "Published")
-        self.assertEqual(published["source"], "Client account auto-published")
-        self.assertEqual(published["reprint_terms_version"], app.REPRINT_TERMS_VERSION)
-        self.assertNotIn("editorial_reviewed_at", published)
-        newsletter.assert_called_once()
-        self.assertEqual(newsletter.call_args.args[0]["status"], "Published")
         dashboard = self.client.get("/client")
-        self.assertIn(b"Newsletter sent", dashboard.data)
-        self.assertIn(b"AI generated living room ideas", self.client.get("/blog").data)
+        self.assertIn(b"Pending Review", dashboard.data)
 
     def test_client_website_url_must_use_http_or_https(self):
         self.sign_up()
@@ -217,6 +332,37 @@ class ClientPortalTests(unittest.TestCase):
         self.assertEqual(response.location, "/client")
         self.assertEqual(app.load_articles(), [])
 
+    def test_admin_can_view_registered_client_list_but_client_cannot(self):
+        self.sign_up()
+        with self.client.session_transaction() as state:
+            client_id = state["client_id"]
+        app.save_article({
+            "id": "listed-client-article",
+            "article_title": "Client review submission",
+            "client_id": client_id,
+            "status": "Pending Review",
+            "created_at": "2026-10-15T12:00:00+05:00",
+            "niche": "home-decor",
+            "article_html": "<p>Private pending article.</p>",
+        })
+
+        denied = self.client.get("/admin/clients")
+        self.assertEqual(denied.status_code, 302)
+        self.assertEqual(denied.location, "/client")
+
+        admin_client = app.app.test_client()
+        with admin_client.session_transaction() as state:
+            state["admin_authenticated"] = True
+        response = admin_client.get("/admin/clients")
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(b"Client accounts for this site", response.data)
+        self.assertIn(b"Client Writer", response.data)
+        self.assertIn(b"client@example.com", response.data)
+        self.assertIn(b"1 article", response.data)
+        self.assertIn(b"1 pending", response.data)
+        self.assertNotIn(b"password_hash", response.data)
+        self.assertNotIn(b"secure-client-password", response.data)
+
     def test_anonymous_submit_article_link_never_renders_admin_workspace(self):
         response = self.client.get("/submit")
         self.assertEqual(response.status_code, 302)
@@ -267,7 +413,8 @@ class ClientPortalTests(unittest.TestCase):
             "meta_description": "Useful ideas for a comfortable small living room.",
             "article_html": "<h1>AI generated living room ideas</h1><p>Generated article text.</p>",
         }
-        with patch.dict(os.environ, {"GROQ_API_KEY": "test-groq-key"}), \
+        with patch("app.send_editorial_submission_notification", return_value=True), \
+                patch.dict(os.environ, {"GROQ_API_KEY": "test-groq-key"}), \
                 patch("app.Groq"), \
                 patch("app.engine.generate_article", return_value=generated) as generate:
             for _ in range(app.CLIENT_DAILY_GENERATION_LIMIT):
@@ -289,7 +436,7 @@ class ClientPortalTests(unittest.TestCase):
 
         articles = app.load_articles()
         self.assertEqual(len(articles), app.CLIENT_DAILY_GENERATION_LIMIT)
-        self.assertTrue(all(article["status"] == "Draft" for article in articles))
+        self.assertTrue(all(article["status"] == "Pending Review" for article in articles))
         self.assertTrue(all(article["source"] == "Client AI-generated draft" for article in articles))
         self.assertTrue(all(article["client_id"] for article in articles))
         self.assertTrue(all("<h1>" not in article["article_html"] for article in articles))

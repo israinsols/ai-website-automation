@@ -19,10 +19,10 @@
       {% endwith %}
 
       {% if page == 'dashboard' %}
-        <section class="workspace-intro"><p class="eyebrow">YOUR CONTENT / {{ selected_niche }}</p><h1>Welcome, {{ account.display_name }}.</h1><p>Save a private draft, or publish your article to the blog as soon as you confirm you have the rights to share it.</p></section>
+        <section class="workspace-intro"><p class="eyebrow">YOUR CONTENT / {{ selected_niche }}</p><h1>Welcome, {{ account.display_name }}.</h1><p>Save a private draft or submit it for editorial review. Only the editorial team can publish articles.</p></section>
         <a class="button button-primary" href="{{ url_for('client_article_new') }}">Create an article <span aria-hidden="true">→</span></a>
         <p class="form-note">AI generations remaining today: {{ generation_remaining }} of {{ config.get('CLIENT_DAILY_GENERATION_LIMIT', 3) }}.</p>
-        <section class="section-header"><div><p class="eyebrow">YOUR ARTICLES</p><h2>Drafts and published articles</h2></div><span class="muted-note">{{ articles | length }} total</span></section>
+        <section class="section-header"><div><p class="eyebrow">YOUR ARTICLES</p><h2>Drafts, review submissions, and published articles</h2></div><span class="muted-note">{{ articles | length }} total</span></section>
         {% if articles %}
           <div class="article-table">{% for article in articles %}<a class="article-row" href="{{ url_for('client_article_detail', article_id=article.id) }}"><span class="article-row-main"><strong>{{ article.article_title }}</strong><small>{{ article.keyword or 'No target keyword' }} · {{ article.created_at[:10] }}</small></span><span class="status status-{{ article.status | lower | replace(' ', '-') }}">{{ article.status }}</span><span class="row-arrow" aria-hidden="true">↗</span></a>{% endfor %}</div>
         {% else %}
@@ -30,13 +30,13 @@
         {% endif %}
 
       {% elif page == 'editor' %}
-        <section class="workspace-intro"><p class="eyebrow">{% if article %}EDIT DRAFT{% else %}NEW ARTICLE{% endif %} / {{ selected_niche }}</p><h1>{% if article %}Work on your draft.{% else %}Start your article.{% endif %}</h1><p>Save it privately as a draft, or confirm your rights and publish it immediately on the blog.</p></section>
+        <section class="workspace-intro"><p class="eyebrow">{% if article %}EDIT DRAFT{% else %}NEW ARTICLE{% endif %} / {{ selected_niche }}</p><h1>{% if article %}Work on your draft.{% else %}Start your article.{% endif %}</h1><p>Save a private draft or submit your article for editorial review. Publication requires editorial approval.</p></section>
         {% if not article %}
           <form class="workspace-panel client-generate-form" method="post" action="{{ url_for('client_generate_article') }}">
             {{ csrf_input() }}
             <p class="eyebrow">AI ARTICLE WRITER</p><h2>Tell us what you want to write about.</h2>
             <label for="generation-keyword">Article topic or target keyword</label><input id="generation-keyword" name="keyword" maxlength="160" placeholder="e.g. space-saving ideas for a small living room" required>
-            <p class="form-note">Creates a private draft using the site's AI writer. Review the article before choosing to publish it. {{ generation_remaining }} generation{{ '' if generation_remaining == 1 else 's' }} left today.</p>
+            <p class="form-note">Creates an article and sends it to the editorial team for review. {{ generation_remaining }} generation{{ '' if generation_remaining == 1 else 's' }} left today.</p>
             <button class="button button-primary" type="submit" {% if generation_remaining == 0 %}disabled{% endif %}>Generate my article <span aria-hidden="true">→</span></button>
           </form>
           <p class="client-or-write"><span>OR WRITE YOUR OWN ARTICLE BELOW</span></p>
@@ -58,12 +58,12 @@
           {% endif %}
           <label for="client-original-url">Original article URL <span>Optional</span></label><input id="client-original-url" name="original_url" type="url" maxlength="2000" value="{{ article.original_url if article else '' }}" placeholder="https://example.com/original-article">
           <label class="acknowledgement"><input type="checkbox" name="canonical_to_original" {% if article and article.canonical_to_original %}checked{% endif %}><span>This article is an identical copy already published at that URL; request that search engines treat the original page as canonical.</span></label>
-          <label class="acknowledgement"><input type="checkbox" name="rights_confirmed"><span>I own this work or have authority to grant {{ site_name }} permission to publish it immediately under the <a href="{{ url_for('editorial_policy_page') }}">reprint terms</a>. I authorize the publication to show my website URL as an author link. Required when publishing.</span></label>
-          <div class="client-form-actions"><button class="button button-outline" type="submit" name="action" value="save_draft">Save draft</button><button class="button button-primary" type="submit" name="action" value="publish_now">Publish now <span aria-hidden="true">→</span></button></div>
+          <label class="acknowledgement"><input type="checkbox" name="rights_confirmed"><span>I own this work or have authority to grant {{ site_name }} permission to publish it if approved under the <a href="{{ url_for('editorial_policy_page') }}">reprint terms</a>. I authorize the publication to show my website URL as an author link. Required when submitting for review.</span></label>
+          <div class="client-form-actions"><button class="button button-outline" type="submit" name="action" value="save_draft">Save draft</button><button class="button button-primary" type="submit" name="action" value="submit_for_review">Submit for review <span aria-hidden="true">→</span></button></div>
         </form>
 
       {% else %}
-        <section class="workspace-intro"><p class="eyebrow">ARTICLE STATUS</p><h1>{{ article.article_title }}</h1><p>{% if article.status == 'Published' %}This article is live on the blog.{% else %}This private draft is only visible to you and the editorial team.{% endif %}</p></section>
+        <section class="workspace-intro"><p class="eyebrow">ARTICLE STATUS</p><h1>{{ article.article_title }}</h1><p>{% if article.status == 'Published' %}This article is live on the blog.{% elif article.status == 'Pending Review' %}Your article is waiting for editorial review. We will email you when it is published.{% else %}This private draft is only visible to you and the editorial team.{% endif %}</p></section>
         <div class="detail-toolbar"><a class="text-link" href="{{ url_for('client_portal') }}">← My articles</a><span class="status status-{{ article.status | lower | replace(' ', '-') }}">{{ article.status }}</span></div>
         {% if article.status == 'Draft' %}<a class="button button-primary" href="{{ url_for('client_article_detail', article_id=article.id) }}">Edit draft</a>{% endif %}
         <article class="article-preview"><h2>{{ article.article_title }}</h2><div class="article-content">{{ article.article_html | safe }}</div></article>

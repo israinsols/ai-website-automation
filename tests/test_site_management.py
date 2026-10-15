@@ -6,7 +6,7 @@ from datetime import datetime
 from io import BytesIO
 from pathlib import Path
 from urllib.parse import urlparse
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 import xml.etree.ElementTree as ET
 
 import app
@@ -876,6 +876,44 @@ class SiteManagementTests(unittest.TestCase):
         self.assertEqual(message["To"], "reader@example.test")
         self.assertEqual(message["Subject"], "New story")
         self.assertIn("Read the new story.", message.get_content())
+
+    def test_newsletter_email_uses_resend_api_when_configured(self):
+        resend_environment = {
+            "RESEND_API_KEY": "re_test_api_key",
+            "NEWSLETTER_FROM_EMAIL": "newsletter@example.test",
+            "PUBLIC_SITE_URL": "https://home.example.test",
+            "NEWSLETTER_SMTP_HOST": "",
+        }
+        response = Mock()
+        with patch.dict("os.environ", resend_environment), \
+                patch("app.requests.post", return_value=response) as resend_request, \
+                patch("app.smtplib.SMTP") as smtp:
+            app.send_newsletter_email(
+                "reader@example.test", "New story", "Read the new story.",
+            )
+
+        resend_request.assert_called_once_with(
+            "https://api.resend.com/emails",
+            headers={"Authorization": "Bearer re_test_api_key"},
+            json={
+                "from": "Urban Nest Interiors <newsletter@example.test>",
+                "to": ["reader@example.test"],
+                "subject": "New story",
+                "text": "Read the new story.",
+            },
+            timeout=20,
+        )
+        response.raise_for_status.assert_called_once()
+        smtp.assert_not_called()
+
+    def test_resend_configuration_requires_sender_and_public_https_url(self):
+        with patch.dict("os.environ", {
+            "RESEND_API_KEY": "re_test_api_key",
+            "NEWSLETTER_FROM_EMAIL": "newsletter@example.test",
+            "PUBLIC_SITE_URL": "http://home.example.test",
+            "NEWSLETTER_SMTP_HOST": "",
+        }):
+            self.assertFalse(app.newsletter_email_configured())
 
     def test_newsletter_signup_is_hidden_without_a_valid_mail_configuration(self):
         app.set_app_setting("site_settings", json.dumps({

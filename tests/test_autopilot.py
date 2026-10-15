@@ -198,7 +198,14 @@ class AutopilotTests(unittest.TestCase):
             "article_title": "Future scheduled story",
             "scheduled_publish_at": "2026-10-14T18:30:00+05:00",
         }
-        for article in (scheduled, not_approved, future):
+        client_draft = {
+            **scheduled,
+            "id": "client-draft-scheduled",
+            "article_title": "Unsubmitted client article",
+            "client_id": "client-123",
+            "status": "Draft",
+        }
+        for article in (scheduled, not_approved, future, client_draft):
             app.save_article(article)
 
         with patch("app.send_published_article_newsletter", return_value=(0, 0)) as newsletter:
@@ -215,6 +222,7 @@ class AutopilotTests(unittest.TestCase):
         self.assertNotIn("scheduled_publish_at", articles["due-schedule"])
         self.assertEqual(articles["not-approved"]["status"], "Draft")
         self.assertEqual(articles["future-scheduled"]["status"], "Draft")
+        self.assertEqual(articles["client-draft-scheduled"]["status"], "Draft")
 
     def test_editing_scheduled_article_revokes_approval_and_schedule(self):
         article = {
@@ -450,7 +458,7 @@ class AutopilotTests(unittest.TestCase):
         self.assertTrue(rows)
         self.assertNotIn("repeat@example.com", rows[0][0])
 
-    def test_signed_in_client_submission_publishes_and_records_reprint_permission_and_canonical(self):
+    def test_signed_in_client_submission_waits_for_review_before_publication(self):
         client = app.app.test_client()
         client.get("/client/signup")
         with client.session_transaction() as state:
@@ -466,27 +474,44 @@ class AutopilotTests(unittest.TestCase):
         client.get("/client/articles/new")
         with client.session_transaction() as state:
             csrf_token = state["_csrf_token"]
-        response = client.post("/client/articles/new", data={
-            "_csrf_token": csrf_token,
-            "title": "Syndicated storage guide",
-            "author": "Client Writer",
-            "keyword": "storage guide",
-            "content": "Useful original storage advice.",
-            "client_website_url": "https://client.example.com",
-            "original_url": "https://client.example.com/storage-guide",
-            "canonical_to_original": "on",
-            "rights_confirmed": "on",
-            "action": "publish_now",
-        })
+        with patch("app.send_editorial_submission_notification", return_value=True):
+            response = client.post("/client/articles/new", data={
+                "_csrf_token": csrf_token,
+                "title": "Syndicated storage guide",
+                "author": "Client Writer",
+                "keyword": "storage guide",
+                "content": "Useful original storage advice.",
+                "client_website_url": "https://client.example.com",
+                "original_url": "https://client.example.com/storage-guide",
+                "canonical_to_original": "on",
+                "rights_confirmed": "on",
+                "action": "submit_for_review",
+            })
         self.assertEqual(response.status_code, 302)
         article = app.load_articles()[0]
-        self.assertEqual(article["status"], "Published")
+        self.assertEqual(article["status"], "Pending Review")
         self.assertEqual(article["contributor_email"], "owner@example.com")
         self.assertEqual(article["reprint_terms_version"], app.REPRINT_TERMS_VERSION)
         self.assertTrue(article["reprint_permission_at"])
         self.assertTrue(article["canonical_to_original"])
         self.assertEqual(article["client_website_url"], "https://client.example.com")
-        self.assertEqual(article["source"], "Client account auto-published")
+        self.assertEqual(article["source"], "Client account")
+        self.assertNotIn("slug", article)
+
+        admin_client = app.app.test_client()
+        with admin_client.session_transaction() as state:
+            state["admin_authenticated"] = True
+            state["admin_username"] = "site-editor"
+            state["_csrf_token"] = "admin-token"
+        with patch("app.send_client_publication_notification", return_value=True):
+            response = admin_client.post(
+                f"/articles/{article['id']}/publish",
+                data={"_csrf_token": "admin-token"},
+            )
+        self.assertEqual(response.status_code, 302)
+        article = app.load_articles()[0]
+        self.assertEqual(article["status"], "Published")
+        self.assertEqual(article["editorial_reviewed_by"], "site-editor")
         public_page = client.get(f"/blog/{article['slug']}")
         self.assertIn(b'<link rel="canonical" href="https://client.example.com/storage-guide">', public_page.data)
         self.assertIn(b'href="https://client.example.com" target="_blank" rel="sponsored nofollow noopener noreferrer"', public_page.data)
