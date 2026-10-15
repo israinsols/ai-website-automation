@@ -42,13 +42,24 @@ class ClientPortalTests(unittest.TestCase):
             "article_title": "A client submission",
             "author": "Client Writer",
             "contributor_email": "client@example.com",
+            "keyword": "sample client keyword",
+            "client_website_url": "https://client.example.com",
+            "created_at": "2026-10-15T12:30:00+05:00",
         }
         with patch.dict(os.environ, {"EDITORIAL_NOTIFICATION_EMAIL": "editor@example.com"}), \
                 patch("app.send_newsletter_email") as send_email:
             self.assertTrue(app.send_editorial_submission_notification(article))
         self.assertEqual(send_email.call_args.args[0], "editor@example.com")
         self.assertIn("A client submission", send_email.call_args.args[1])
+        self.assertIn("Urban Nest Interiors", send_email.call_args.args[1])
+        self.assertIn("Oct 15, 2026", send_email.call_args.args[2])
+        self.assertIn("sample client keyword", send_email.call_args.args[2])
         self.assertIn("client@example.com", send_email.call_args.args[2])
+        html_body = send_email.call_args.kwargs["html_body"]
+        self.assertIn("Urban Nest Interiors", html_body)
+        self.assertIn("Oct 15, 2026", html_body)
+        self.assertIn("https://client.example.com", html_body)
+        self.assertIn("sample client keyword", html_body)
 
     def test_client_publication_notification_is_sent_to_contributor(self):
         article = {
@@ -56,7 +67,9 @@ class ClientPortalTests(unittest.TestCase):
             "article_title": "A published client article",
             "author": "Client Writer",
             "contributor_email": "client@example.com",
+            "keyword": "sample published keyword",
             "slug": "published-client-article",
+            "published_at": "2026-10-15T13:45:00+05:00",
         }
         with patch("app.send_newsletter_email") as send_email:
             self.assertTrue(app.send_client_publication_notification(article))
@@ -66,6 +79,8 @@ class ClientPortalTests(unittest.TestCase):
         self.assertIn("Client Writer", send_email.call_args.kwargs["html_body"])
         self.assertIn("Published", send_email.call_args.kwargs["html_body"])
         self.assertIn("Urban Nest Interiors", send_email.call_args.kwargs["html_body"])
+        self.assertIn("Oct 15, 2026", send_email.call_args.kwargs["html_body"])
+        self.assertIn("sample published keyword", send_email.call_args.kwargs["html_body"])
 
     def test_client_submission_confirmation_contains_review_status_and_branded_details(self):
         article = {
@@ -73,6 +88,7 @@ class ClientPortalTests(unittest.TestCase):
             "article_title": "A submitted client article",
             "author": "Client Writer",
             "contributor_email": "client@example.com",
+            "created_at": "2026-10-15T12:30:00+05:00",
         }
         with patch("app.send_newsletter_email") as send_email:
             self.assertTrue(app.send_client_submission_confirmation(article))
@@ -86,6 +102,7 @@ class ClientPortalTests(unittest.TestCase):
         self.assertIn("Urban Nest Interiors", email_html)
         self.assertIn("Pending Review", email_html)
         self.assertIn("submitted-client-article", email_html)
+        self.assertIn("Oct 15, 2026", email_html)
 
     def test_client_can_save_draft_and_submit_for_admin_review(self):
         response = self.sign_up()

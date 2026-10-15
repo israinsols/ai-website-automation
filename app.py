@@ -1282,6 +1282,18 @@ def workflow_email_html(site_name, preheader, greeting, paragraphs, details, but
     )
 
 
+def format_workflow_datetime(value):
+    if not isinstance(value, str) or not value.strip():
+        return "Not recorded"
+    try:
+        timestamp = datetime.fromisoformat(value.strip().replace("Z", "+00:00"))
+        if timestamp.tzinfo is None:
+            timestamp = timestamp.astimezone()
+        return timestamp.astimezone().strftime("%b %d, %Y at %I:%M %p %Z").strip()
+    except ValueError:
+        return value.strip()
+
+
 def send_editorial_submission_notification(article):
     recipient = (
         os.getenv("EDITORIAL_NOTIFICATION_EMAIL", "").strip()
@@ -1296,27 +1308,42 @@ def send_editorial_submission_notification(article):
         return False
     try:
         site_name = load_site_settings()["site_name"]
+        site_url = canonical_url("home")
         article_url = canonical_url("article_detail", article_id=article["id"])
         title = article.get("article_title", "Untitled article")
         author = article.get("author") or "A client"
         client_email = article.get("contributor_email", "Not provided")
+        submitted_at = format_workflow_datetime(article.get("created_at"))
+        keyword = article.get("keyword") or "Not provided"
+        client_website = article.get("client_website_url") or "Not provided"
         body = (
             f"{author} submitted an article for editorial review on {site_name}.\n\n"
-            f"Article: {title}\nAuthor: {author}\nClient email: {client_email}\n"
-            f"Status: Pending Review\nReview in the admin workspace: {article_url}\n"
+            f"Site: {site_name}\nSite URL: {site_url}\nArticle: {title}\nAuthor: {author}\nClient email: {client_email}\n"
+            f"Target keyword: {keyword}\nClient website: {client_website}\n"
+            f"Submitted: {submitted_at}\nStatus: Pending Review\nReview in the admin workspace: {article_url}\n"
         )
         html_body = workflow_email_html(
             site_name,
-            f"New client article submitted for review: {title}",
-            "New article submission",
+            f"{site_name}: new client article submitted for review — {title}",
+            f"New article for {site_name}",
             [f"{author} submitted an article for editorial review."],
-            [("Article", title), ("Author", author), ("Client email", client_email), ("Status", "Pending Review")],
+            [
+                ("Site", site_name),
+                ("Site URL", site_url),
+                ("Article", title),
+                ("Author", author),
+                ("Client email", client_email),
+                ("Target keyword", keyword),
+                ("Client website", client_website),
+                ("Submitted", submitted_at),
+                ("Status", "Pending Review"),
+            ],
             "Review article",
             article_url,
         )
         send_newsletter_email(
             recipient,
-            f"Client article needs review: {title}",
+            f"[{site_name}] Client article needs review: {title}",
             body,
             html_body=html_body,
         )
@@ -1336,13 +1363,16 @@ def send_client_submission_confirmation(article):
         return False
     try:
         site_name = load_site_settings()["site_name"]
+        site_url = canonical_url("home")
         title = article.get("article_title", "Your article")
         author = article.get("author") or "there"
+        submitted_at = format_workflow_datetime(article.get("created_at"))
         status_url = canonical_url("client_article_detail", article_id=article["id"])
         body = (
             f"Hi {author},\n\n"
             f"We received “{title}” and it is now waiting for editorial review on {site_name}.\n\n"
-            f"Submission status: Pending Review\n"
+            f"Site: {site_name}\nSite URL: {site_url}\nArticle: {title}\nAuthor: {author}\n"
+            f"Submitted: {submitted_at}\nSubmission status: Pending Review\n"
             f"We will email you again when the editorial team has published your article.\n\n"
             f"View your submission status: {status_url}\n"
         )
@@ -1355,7 +1385,15 @@ def send_client_submission_confirmation(article):
                 "Your article has been received and is now waiting for editorial review.",
                 "We will email you again when the editorial team has published it.",
             ],
-            [("Article", title), ("Author", author), ("Email", recipient), ("Status", "Pending Review")],
+            [
+                ("Site", site_name),
+                ("Site URL", site_url),
+                ("Article", title),
+                ("Author", author),
+                ("Email", recipient),
+                ("Submitted", submitted_at),
+                ("Status", "Pending Review"),
+            ],
             "View submission status",
             status_url,
         )
@@ -1379,12 +1417,16 @@ def send_client_publication_notification(article):
     try:
         article_url = canonical_url("public_article", slug=article.get("slug", ""))
         site_name = load_site_settings()["site_name"]
+        site_url = canonical_url("home")
         title = article.get("article_title", "Your article")
         author = article.get("author") or "there"
+        published_at = format_workflow_datetime(article.get("published_at"))
+        keyword = article.get("keyword") or "Not provided"
         body = (
             f"Hi {author},\n\n"
             f"Your article “{title}” has been reviewed and published on {site_name}.\n\n"
-            f"Author: {author}\nEmail: {recipient}\nStatus: Published\n"
+            f"Site: {site_name}\nSite URL: {site_url}\nArticle: {title}\nAuthor: {author}\nEmail: {recipient}\n"
+            f"Target keyword: {keyword}\nPublished: {published_at}\nStatus: Published\n"
             f"View your published article: {article_url}\n"
         )
         html_body = workflow_email_html(
@@ -1392,7 +1434,16 @@ def send_client_publication_notification(article):
             f"Your article is published on {site_name}: {title}",
             "Your article is published",
             [f"Hi {author},", "The editorial team has reviewed and published your article."],
-            [("Article", title), ("Author", author), ("Email", recipient), ("Status", "Published")],
+            [
+                ("Site", site_name),
+                ("Site URL", site_url),
+                ("Article", title),
+                ("Author", author),
+                ("Email", recipient),
+                ("Target keyword", keyword),
+                ("Published", published_at),
+                ("Status", "Published"),
+            ],
             "Read your published article",
             article_url,
         )
