@@ -495,6 +495,14 @@ class SiteManagementTests(unittest.TestCase):
             self.assertEqual(optimized.format, "WEBP")
             self.assertEqual(optimized.size, (1800, 900))
         self.assertLess(image_path.stat().st_size, len(original.getvalue()))
+        with patch("app.local_image_storage", return_value=("site", upload_directory)):
+            uploaded_response = self.client.get(saved_article["cover_image_url"])
+            self.assertEqual(uploaded_response.status_code, 200)
+            self.assertEqual(uploaded_response.mimetype, "image/webp")
+            uploaded_payload = uploaded_response.data
+            uploaded_response.close()
+            self.assertEqual(uploaded_payload, image_path.read_bytes())
+            self.assertEqual(self.client.get("/uploads/site/../secret.webp").status_code, 404)
         public_page = self.client.get("/blog/webp-cover")
         self.assertEqual(public_page.status_code, 200)
         self.assertIn(saved_article["cover_image_url"].encode(), public_page.data)

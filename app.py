@@ -26,7 +26,7 @@ import uuid
 import xml.etree.ElementTree as ET
 
 from dotenv import dotenv_values, load_dotenv
-from flask import Flask, Response, abort, flash, redirect, render_template, request, send_file, session, url_for
+from flask import Flask, Response, abort, flash, redirect, render_template, request, send_file, send_from_directory, session, url_for
 from groq import Groq
 from itsdangerous import BadSignature, URLSafeSerializer
 from PIL import Image, ImageOps, UnidentifiedImageError
@@ -44,6 +44,8 @@ ENV_FILE = os.getenv("ENV_FILE", ".env").strip() or ".env"
 load_dotenv(ROOT / ENV_FILE, override=True)
 DATABASE_SETTING = Path(os.getenv("DATABASE_PATH", "data/site.sqlite3"))
 DATABASE_PATH = DATABASE_SETTING if DATABASE_SETTING.is_absolute() else ROOT / DATABASE_SETTING
+UPLOADS_SETTING = Path(os.getenv("UPLOADS_PATH", "static/uploads"))
+UPLOADS_PATH = UPLOADS_SETTING if UPLOADS_SETTING.is_absolute() else ROOT / UPLOADS_SETTING
 
 app = Flask(__name__)
 APP_ENV = os.getenv("APP_ENV", "development").strip().lower()
@@ -156,7 +158,7 @@ def is_safe_image_url(value):
 def is_safe_local_image_url(value):
     profile, _ = local_image_storage()
     return isinstance(value, str) and re.fullmatch(
-        rf"/static/uploads/{re.escape(profile)}/[0-9a-f]{{32}}\.webp", value
+        rf"/(?:uploads|static/uploads)/{re.escape(profile)}/[0-9a-f]{{32}}\.webp", value
     ) is not None
 
 
@@ -418,7 +420,7 @@ def run_site_link_check(request_host, request_scheme):
 
 def local_image_storage():
     profile = re.sub(r"[^a-z0-9-]", "-", DATABASE_PATH.stem.casefold()).strip("-")[:60] or "site"
-    return profile, ROOT / "static" / "uploads" / profile
+    return profile, UPLOADS_PATH / profile
 
 
 def optimize_uploaded_image(upload):
@@ -453,7 +455,7 @@ def optimize_uploaded_image(upload):
     directory.mkdir(parents=True, exist_ok=True)
     filename = f"{uuid.uuid4().hex}.webp"
     (directory / filename).write_bytes(output.getvalue())
-    return f"/static/uploads/{profile}/{filename}", len(payload), output.tell()
+    return f"/uploads/{profile}/{filename}", len(payload), output.tell()
 
 
 def article_cover_image(article, index=0):
@@ -3969,6 +3971,14 @@ def public_article(slug):
         schema=schema,
         related_articles=related,
     )
+
+
+@app.route("/uploads/<profile>/<filename>")
+def uploaded_image(profile, filename):
+    expected_profile, directory = local_image_storage()
+    if profile != expected_profile or not re.fullmatch(r"[0-9a-f]{32}\.webp", filename):
+        abort(404)
+    return send_from_directory(directory, filename, mimetype="image/webp", max_age=31536000)
 
 
 @app.route("/robots.txt")

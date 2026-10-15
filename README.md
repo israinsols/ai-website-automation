@@ -54,6 +54,14 @@ The Tech profile uses `SITE_NICHE=tech`, its own branding, `data/tech.sqlite3`, 
 
 Because the management features use `DATABASE_PATH`, each running profile has its own site settings, custom pages, keyword queue, and newsletter subscribers.
 
+## Railway deployment
+
+The Flask application serves both the rendered pages and static assets, so a Railway service deploys the full website and backend together. For separate Home Decor and Tech sites, create two Railway services from this repository and configure each service with its own profile variables and Railway volume mounted at `/data`.
+
+For each service, set `APP_ENV=production`, a unique random `FLASK_SECRET_KEY`, a unique `ADMIN_USERNAME` and `ADMIN_PASSWORD` (at least 16 characters), `DATABASE_PATH=/data/site.sqlite3`, `UPLOADS_PATH=/data/uploads`, `KEYWORD_STATE_PATH=/data/used_keywords.json`, and `PENDING_ARTICLE_PATH=/data/pending_wordpress_article.json`. Set the site's `SITE_NICHE`, branding, and `PUBLIC_SITE_URL` separately. Add `GROQ_API_KEY` to enable article generation. Configure each assigned domain as the profile's HTTPS `PUBLIC_SITE_URL`; configure SMTP and other optional integrations only when needed. Do not commit credentials or local databases.
+
+The `Procfile` starts Gunicorn using Railway's assigned `PORT`. SQLite databases, uploaded article images, and keyword state must use the mounted volume; the app's `/uploads/...` route serves those persistent images. Keep one application instance per SQLite database.
+
 The public blog, article pages, sitemap, and RSS feed show published articles matching that profile's configured category across both configured profile databases. This lets a Tech article published from a workspace currently pointed at the Home Decor database appear on the Tech site, without exposing it on the Home Decor site. Site settings, custom pages, keyword queues, and subscribers remain separate per database.
 
 For the automatic feed-based writing flow, configure `GROQ_API_KEY` and set `RSS_FEED_URLS` in `.env`. The app can build a draft from recent feed items, ask Groq to write original copy, and store the feed source details with the draft. Review all facts and feed items before publication. The older manual-keyword generator does not rely on live search. Feed summaries are not proof of ranking or search volume.
