@@ -1249,6 +1249,39 @@ def publish_article_record(article, records, published_by, published_at=None):
     return sent, failed, client_email_sent
 
 
+def workflow_email_html(site_name, preheader, greeting, paragraphs, details, button_label, button_url):
+    escaped_site = html.escape(site_name)
+    content = "".join(f"<p>{html.escape(paragraph)}</p>" for paragraph in paragraphs)
+    detail_rows = "".join(
+        "<tr>"
+        f'<td style="padding:10px 12px;color:#667085;border-bottom:1px solid #e7e9ee;">{html.escape(label)}</td>'
+        f'<td style="padding:10px 12px;color:#20242c;font-weight:600;border-bottom:1px solid #e7e9ee;">{html.escape(value)}</td>'
+        "</tr>"
+        for label, value in details
+        if value
+    )
+    safe_button_url = html.escape(button_url, quote=True)
+    return (
+        '<!doctype html><html><body style="margin:0;background:#f4f5f7;font-family:Arial,sans-serif;color:#20242c;">'
+        f'<div style="display:none;max-height:0;overflow:hidden;">{html.escape(preheader)}</div>'
+        '<table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background:#f4f5f7;padding:28px 12px;">'
+        '<tr><td align="center"><table role="presentation" width="600" cellspacing="0" cellpadding="0" '
+        'style="max-width:600px;background:#fff;border:1px solid #e7e9ee;border-radius:14px;overflow:hidden;">'
+        '<tr><td style="padding:22px 30px;background:#20242c;color:#fff;font-size:18px;font-weight:700;">'
+        f'{escaped_site}</td></tr>'
+        '<tr><td style="padding:30px;">'
+        f'<h1 style="margin:0 0 18px;font-size:24px;line-height:1.3;">{html.escape(greeting)}</h1>'
+        f'<div style="font-size:15px;line-height:1.65;color:#454b55;">{content}</div>'
+        f'<table role="presentation" width="100%" cellspacing="0" cellpadding="0" '
+        f'style="margin:20px 0;background:#f8f9fb;border:1px solid #e7e9ee;border-radius:8px;">{detail_rows}</table>'
+        f'<p style="margin:24px 0;"><a href="{safe_button_url}" '
+        'style="display:inline-block;background:#20242c;color:#fff;text-decoration:none;font-weight:700;'
+        f'padding:12px 18px;border-radius:7px;">{html.escape(button_label)}</a></p>'
+        f'<p style="margin:24px 0 0;color:#667085;font-size:13px;">Regards,<br>{escaped_site} Editorial Team</p>'
+        '</td></tr></table></td></tr></table></body></html>'
+    )
+
+
 def send_editorial_submission_notification(article):
     recipient = (
         os.getenv("EDITORIAL_NOTIFICATION_EMAIL", "").strip()
@@ -1262,21 +1295,79 @@ def send_editorial_submission_notification(article):
         )
         return False
     try:
+        site_name = load_site_settings()["site_name"]
         article_url = canonical_url("article_detail", article_id=article["id"])
+        title = article.get("article_title", "Untitled article")
+        author = article.get("author") or "A client"
+        client_email = article.get("contributor_email", "Not provided")
         body = (
-            f"{article.get('author') or 'A client'} submitted an article for editorial review.\n\n"
-            f"Article: {article.get('article_title', 'Untitled article')}\n"
-            f"Client email: {article.get('contributor_email', 'Not provided')}\n"
-            f"Review in the admin workspace: {article_url}\n"
+            f"{author} submitted an article for editorial review on {site_name}.\n\n"
+            f"Article: {title}\nAuthor: {author}\nClient email: {client_email}\n"
+            f"Status: Pending Review\nReview in the admin workspace: {article_url}\n"
+        )
+        html_body = workflow_email_html(
+            site_name,
+            f"New client article submitted for review: {title}",
+            "New article submission",
+            [f"{author} submitted an article for editorial review."],
+            [("Article", title), ("Author", author), ("Client email", client_email), ("Status", "Pending Review")],
+            "Review article",
+            article_url,
         )
         send_newsletter_email(
             recipient,
-            f"Client article needs review: {article.get('article_title', 'Untitled article')}",
+            f"Client article needs review: {title}",
             body,
+            html_body=html_body,
         )
         return True
     except (OSError, requests.RequestException, smtplib.SMTPException, RuntimeError, ValueError, sqlite3.Error):
         app.logger.exception("Could not email the editorial team about a client article")
+        return False
+
+
+def send_client_submission_confirmation(article):
+    recipient = article.get("contributor_email", "").strip()
+    if not re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", recipient):
+        app.logger.error(
+            "Cannot confirm client submission: article %s has no valid contributor email.",
+            article.get("id"),
+        )
+        return False
+    try:
+        site_name = load_site_settings()["site_name"]
+        title = article.get("article_title", "Your article")
+        author = article.get("author") or "there"
+        status_url = canonical_url("client_article_detail", article_id=article["id"])
+        body = (
+            f"Hi {author},\n\n"
+            f"We received “{title}” and it is now waiting for editorial review on {site_name}.\n\n"
+            f"Submission status: Pending Review\n"
+            f"We will email you again when the editorial team has published your article.\n\n"
+            f"View your submission status: {status_url}\n"
+        )
+        html_body = workflow_email_html(
+            site_name,
+            f"We received your article and it is awaiting editorial review: {title}",
+            "We received your article",
+            [
+                f"Hi {author},",
+                "Your article has been received and is now waiting for editorial review.",
+                "We will email you again when the editorial team has published it.",
+            ],
+            [("Article", title), ("Author", author), ("Email", recipient), ("Status", "Pending Review")],
+            "View submission status",
+            status_url,
+        )
+        send_newsletter_email(
+            recipient,
+            f"We received your article for review — {site_name}",
+            body,
+            html_body=html_body,
+        )
+        return True
+    except (OSError, requests.RequestException, smtplib.SMTPException, RuntimeError, ValueError, sqlite3.Error):
+        app.logger.exception("Could not email client about submitted article %s", article.get("id"))
         return False
 
 
@@ -1288,16 +1379,28 @@ def send_client_publication_notification(article):
     try:
         article_url = canonical_url("public_article", slug=article.get("slug", ""))
         site_name = load_site_settings()["site_name"]
+        title = article.get("article_title", "Your article")
+        author = article.get("author") or "there"
         body = (
-            f"Hi {article.get('author') or 'there'},\n\n"
-            f"Your article “{article.get('article_title', 'Your article')}” has been reviewed and published on "
-            f"{site_name}.\n\n"
+            f"Hi {author},\n\n"
+            f"Your article “{title}” has been reviewed and published on {site_name}.\n\n"
+            f"Author: {author}\nEmail: {recipient}\nStatus: Published\n"
             f"View your published article: {article_url}\n"
+        )
+        html_body = workflow_email_html(
+            site_name,
+            f"Your article is published on {site_name}: {title}",
+            "Your article is published",
+            [f"Hi {author},", "The editorial team has reviewed and published your article."],
+            [("Article", title), ("Author", author), ("Email", recipient), ("Status", "Published")],
+            "Read your published article",
+            article_url,
         )
         send_newsletter_email(
             recipient,
-            f"Your article has been published on {site_name}",
+            f"Your article has been published — {site_name}",
             body,
+            html_body=html_body,
         )
         return True
     except (OSError, requests.RequestException, smtplib.SMTPException, RuntimeError, ValueError, sqlite3.Error):
@@ -2098,6 +2201,8 @@ def canonical_url(endpoint, **values):
     }
     if endpoint == "public_article":
         path = f"/blog/{values.get('slug', '')}".rstrip("/")
+    elif endpoint == "client_article_detail":
+        path = f"/client/articles/{values.get('article_id', '')}".rstrip("/")
     else:
         try:
             path = url_for(endpoint, **values)
@@ -2617,15 +2722,17 @@ def save_client_draft(account, article=None):
         record["reprint_terms_version"] = REPRINT_TERMS_VERSION
     save_article(record)
     if submit_for_review:
-        if send_editorial_submission_notification(record):
+        editorial_email_sent = send_editorial_submission_notification(record)
+        client_email_sent = send_client_submission_confirmation(record)
+        if editorial_email_sent and client_email_sent:
             flash(
-                "Your article was submitted for editorial review. We will email you when it is published.",
+                "Your article was submitted for review. We emailed you a receipt and will email again when it is published.",
                 "success",
             )
         else:
             flash(
-                "Your article is pending editorial review, but we could not email the site team. "
-                "Please contact the site team directly.",
+                "Your article is pending editorial review, but one or more confirmation emails could not be sent. "
+                "The editorial team has been notified when possible; please check your email settings or contact the site team.",
                 "error",
             )
     else:
@@ -2685,22 +2792,22 @@ def client_generate_article():
         }
         save_article(record)
         editorial_email_sent = send_editorial_submission_notification(record)
+        client_email_sent = send_client_submission_confirmation(record)
     except Exception as exc:
         release_client_generation(account["id"])
         app.logger.exception("Could not generate a client article draft")
         flash(groq_error_message(exc), "error")
         return redirect(url_for("client_article_new"))
 
-    if editorial_email_sent:
+    if editorial_email_sent and client_email_sent:
         flash(
-            "Your AI-generated article was submitted for editorial review. "
-            "We will email you when it is published.",
+            "Your AI-generated article was submitted for review. We emailed you a receipt and will email again when it is published.",
             "success",
         )
     else:
         flash(
-            "Your AI-generated article is pending editorial review, but we could not email the site team. "
-            "Please contact the site team directly.",
+            "Your AI-generated article is pending review, but one or more confirmation emails could not be sent. "
+            "The editorial team has been notified when possible; please contact the site team if needed.",
             "error",
         )
     return redirect(url_for("client_article_detail", article_id=record["id"]))
@@ -3157,7 +3264,7 @@ def newsletter_email_configured():
     )
 
 
-def send_newsletter_email(recipient, subject, body):
+def send_newsletter_email(recipient, subject, body, html_body=None):
     if not newsletter_email_configured():
         raise RuntimeError(
             "Configure RESEND_API_KEY or valid SMTP settings, NEWSLETTER_FROM_EMAIL, "
@@ -3176,6 +3283,7 @@ def send_newsletter_email(recipient, subject, body):
                 "to": [recipient],
                 "subject": clean_subject,
                 "text": body,
+                **({"html": html_body} if html_body else {}),
             },
             timeout=20,
         )
@@ -3197,6 +3305,8 @@ def send_newsletter_email(recipient, subject, body):
     ))
     message["To"] = recipient
     message.set_content(body)
+    if html_body:
+        message.add_alternative(html_body, subtype="html")
 
     if security == "ssl":
         with smtplib.SMTP_SSL(host, port, timeout=timeout, context=ssl.create_default_context()) as server:

@@ -474,7 +474,8 @@ class AutopilotTests(unittest.TestCase):
         client.get("/client/articles/new")
         with client.session_transaction() as state:
             csrf_token = state["_csrf_token"]
-        with patch("app.send_editorial_submission_notification", return_value=True):
+        with patch("app.send_editorial_submission_notification", return_value=True), \
+                patch("app.send_client_submission_confirmation", return_value=True):
             response = client.post("/client/articles/new", data={
                 "_csrf_token": csrf_token,
                 "title": "Syndicated storage guide",

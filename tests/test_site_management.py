@@ -867,6 +867,7 @@ class SiteManagementTests(unittest.TestCase):
             server = smtp.return_value.__enter__.return_value
             app.send_newsletter_email(
                 "reader@example.test", "New story", "Read the new story.",
+                html_body="<p>Read the <strong>new story</strong>.</p>",
             )
 
         smtp.assert_called_once_with("smtp.example.test", 587, timeout=20)
@@ -875,7 +876,11 @@ class SiteManagementTests(unittest.TestCase):
         message = server.send_message.call_args.args[0]
         self.assertEqual(message["To"], "reader@example.test")
         self.assertEqual(message["Subject"], "New story")
-        self.assertIn("Read the new story.", message.get_content())
+        self.assertIn("Read the new story.", message.get_body(preferencelist=("plain",)).get_content())
+        self.assertIn(
+            "new story",
+            message.get_body(preferencelist=("html",)).get_content(),
+        )
 
     def test_newsletter_email_uses_resend_api_when_configured(self):
         resend_environment = {
@@ -890,6 +895,7 @@ class SiteManagementTests(unittest.TestCase):
                 patch("app.smtplib.SMTP") as smtp:
             app.send_newsletter_email(
                 "reader@example.test", "New story", "Read the new story.",
+                html_body="<p>Read the <strong>new story</strong>.</p>",
             )
 
         resend_request.assert_called_once_with(
@@ -900,6 +906,7 @@ class SiteManagementTests(unittest.TestCase):
                 "to": ["reader@example.test"],
                 "subject": "New story",
                 "text": "Read the new story.",
+                "html": "<p>Read the <strong>new story</strong>.</p>",
             },
             timeout=20,
         )

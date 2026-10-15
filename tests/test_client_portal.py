@@ -63,6 +63,29 @@ class ClientPortalTests(unittest.TestCase):
         self.assertEqual(send_email.call_args.args[0], "client@example.com")
         self.assertIn("published", send_email.call_args.args[1].lower())
         self.assertIn("published-client-article", send_email.call_args.args[2])
+        self.assertIn("Client Writer", send_email.call_args.kwargs["html_body"])
+        self.assertIn("Published", send_email.call_args.kwargs["html_body"])
+        self.assertIn("Urban Nest Interiors", send_email.call_args.kwargs["html_body"])
+
+    def test_client_submission_confirmation_contains_review_status_and_branded_details(self):
+        article = {
+            "id": "submitted-client-article",
+            "article_title": "A submitted client article",
+            "author": "Client Writer",
+            "contributor_email": "client@example.com",
+        }
+        with patch("app.send_newsletter_email") as send_email:
+            self.assertTrue(app.send_client_submission_confirmation(article))
+        self.assertEqual(send_email.call_args.args[0], "client@example.com")
+        self.assertIn("received", send_email.call_args.args[1].lower())
+        self.assertIn("Pending Review", send_email.call_args.args[2])
+        self.assertIn("published", send_email.call_args.args[2].lower())
+        email_html = send_email.call_args.kwargs["html_body"]
+        self.assertIn("Client Writer", email_html)
+        self.assertIn("client@example.com", email_html)
+        self.assertIn("Urban Nest Interiors", email_html)
+        self.assertIn("Pending Review", email_html)
+        self.assertIn("submitted-client-article", email_html)
 
     def test_client_can_save_draft_and_submit_for_admin_review(self):
         response = self.sign_up()
@@ -98,7 +121,8 @@ class ClientPortalTests(unittest.TestCase):
         self.assertNotIn(b"A thoughtful client draft", public_blog.data)
         edit_url = f"/client/articles/{article['id']}"
         self.client.get(edit_url)
-        with patch("app.send_editorial_submission_notification", return_value=True) as notification:
+        with patch("app.send_editorial_submission_notification", return_value=True) as notification, \
+                patch("app.send_client_submission_confirmation", return_value=True) as client_confirmation:
             response = self.client.post(edit_url, data={
                 "_csrf_token": self.csrf_token(),
                 "title": article["article_title"],
@@ -117,6 +141,7 @@ class ClientPortalTests(unittest.TestCase):
         self.assertEqual(submitted["reprint_terms_version"], app.REPRINT_TERMS_VERSION)
         self.assertEqual(submitted["client_website_url"], "https://client.example.com")
         notification.assert_called_once_with(submitted)
+        client_confirmation.assert_called_once_with(submitted)
         self.assertNotIn(b"A thoughtful client draft", self.client.get("/blog").data)
 
         admin_client = app.app.test_client()
@@ -157,7 +182,8 @@ class ClientPortalTests(unittest.TestCase):
     def test_failed_editorial_email_does_not_undo_pending_submission(self):
         self.sign_up()
         self.client.get("/client/articles/new")
-        with patch("app.send_editorial_submission_notification", return_value=False):
+        with patch("app.send_editorial_submission_notification", return_value=False), \
+                patch("app.send_client_submission_confirmation", return_value=True):
             response = self.client.post("/client/articles/new", data={
                 "_csrf_token": self.csrf_token(),
                 "title": "Submission email failed",
@@ -168,7 +194,7 @@ class ClientPortalTests(unittest.TestCase):
         self.assertEqual(response.status_code, 302)
         self.assertEqual(app.load_articles()[0]["status"], "Pending Review")
         dashboard = self.client.get("/client")
-        self.assertIn(b"could not email the site team", dashboard.data)
+        self.assertIn(b"one or more confirmation emails could not be sent", dashboard.data)
 
     def test_client_cannot_publish_a_draft_directly(self):
         self.sign_up()
@@ -252,6 +278,7 @@ class ClientPortalTests(unittest.TestCase):
             "article_html": "<h1>AI generated living room ideas</h1><p>Generated article text.</p>",
         }
         with patch("app.send_editorial_submission_notification", return_value=True) as notification, \
+                patch("app.send_client_submission_confirmation", return_value=True) as client_confirmation, \
                 patch.dict(os.environ, {"GROQ_API_KEY": "test-groq-key"}), \
                 patch("app.Groq"), \
                 patch("app.engine.generate_article", return_value=generated):
@@ -263,6 +290,7 @@ class ClientPortalTests(unittest.TestCase):
         article = app.load_articles()[0]
         self.assertEqual(article["status"], "Pending Review")
         notification.assert_called_once_with(article)
+        client_confirmation.assert_called_once_with(article)
         self.assertNotIn(b"AI generated living room ideas", self.client.get("/blog").data)
         dashboard = self.client.get("/client")
         self.assertIn(b"Pending Review", dashboard.data)
@@ -414,6 +442,7 @@ class ClientPortalTests(unittest.TestCase):
             "article_html": "<h1>AI generated living room ideas</h1><p>Generated article text.</p>",
         }
         with patch("app.send_editorial_submission_notification", return_value=True), \
+                patch("app.send_client_submission_confirmation", return_value=True), \
                 patch.dict(os.environ, {"GROQ_API_KEY": "test-groq-key"}), \
                 patch("app.Groq"), \
                 patch("app.engine.generate_article", return_value=generated) as generate:
