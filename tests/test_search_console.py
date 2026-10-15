@@ -1,3 +1,4 @@
+import json
 import os
 import sqlite3
 import tempfile
@@ -103,6 +104,39 @@ class SearchConsoleTests(unittest.TestCase):
         self.assertEqual(session.post.call_args.kwargs["json"]["dimensions"], ["query", "page"])
         session.close.assert_called_once()
 
+    def test_api_fetch_accepts_service_account_json_for_railway_secret(self):
+        from google.auth.transport import requests as google_requests
+        from google.oauth2 import service_account
+
+        credentials_info = {
+            "type": "service_account",
+            "client_email": "search-console@example.test",
+            "private_key": "test-private-key",
+        }
+        response = unittest.mock.Mock()
+        response.json.return_value = {"rows": []}
+        session = unittest.mock.Mock()
+        session.post.return_value = response
+        with patch.object(
+            service_account.Credentials, "from_service_account_info", return_value=object()
+        ) as load_credentials, patch.object(
+            google_requests, "AuthorizedSession", return_value=session
+        ):
+            rows, truncated = search_console.fetch_search_console_rows(
+                "https://example.test/",
+                None,
+                "2026-09-14",
+                "2026-10-11",
+                credentials_info=credentials_info,
+            )
+        self.assertEqual(rows, [])
+        self.assertFalse(truncated)
+        load_credentials.assert_called_once_with(
+            credentials_info,
+            scopes=[search_console.SEARCH_CONSOLE_SCOPE],
+        )
+        session.close.assert_called_once()
+
     def test_report_requires_public_https_site_and_private_service_account_file(self):
         with patch.dict(os.environ, {
             "PUBLIC_SITE_URL": "http://127.0.0.1:5000",
@@ -170,6 +204,23 @@ class SearchConsoleTests(unittest.TestCase):
         self.assertEqual(response.status_code, 302)
         sync.assert_not_called()
         self.assertEqual(response.location, "/reports/search-console")
+
+    def test_search_console_report_accepts_railway_json_secret(self):
+        credentials_info = {
+            "type": "service_account",
+            "client_email": "search-console@example.test",
+            "private_key": "test-private-key",
+        }
+        with patch.dict(os.environ, {
+            "PUBLIC_SITE_URL": "https://example.test",
+            "GOOGLE_SEARCH_CONSOLE_PROPERTY": "https://example.test/",
+            "GOOGLE_SEARCH_CONSOLE_CREDENTIALS_FILE": "",
+            "GOOGLE_SEARCH_CONSOLE_CREDENTIALS_JSON": json.dumps(credentials_info),
+        }, clear=False):
+            response = self.client.get("/reports/search-console")
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(b"https://example.test/", response.data)
+        self.assertIn(b"Sync Search Console now", response.data)
 
     def test_daily_automation_syncs_search_console_before_content_run(self):
         with patch.object(automation, "sync_search_console_data", return_value={"status": "synced"}) as sync, \

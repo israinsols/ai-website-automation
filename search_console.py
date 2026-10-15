@@ -20,7 +20,7 @@ def reporting_period(today=None, days=28):
     return start_date.isoformat(), end_date.isoformat()
 
 
-def fetch_search_console_rows(property_url, credentials_path, start_date, end_date):
+def fetch_search_console_rows(property_url, credentials_path, start_date, end_date, credentials_info=None):
     try:
         from google.auth.transport.requests import AuthorizedSession
         from google.auth import exceptions as google_auth_exceptions
@@ -31,10 +31,18 @@ def fetch_search_console_rows(property_url, credentials_path, start_date, end_da
         ) from exc
 
     try:
-        credentials = service_account.Credentials.from_service_account_file(
-            str(credentials_path),
-            scopes=[SEARCH_CONSOLE_SCOPE],
-        )
+        if credentials_info is not None:
+            credentials = service_account.Credentials.from_service_account_info(
+                credentials_info,
+                scopes=[SEARCH_CONSOLE_SCOPE],
+            )
+        elif credentials_path:
+            credentials = service_account.Credentials.from_service_account_file(
+                str(credentials_path),
+                scopes=[SEARCH_CONSOLE_SCOPE],
+            )
+        else:
+            raise RuntimeError("Search Console service-account credentials are not configured.")
     except (OSError, ValueError, google_auth_exceptions.GoogleAuthError) as exc:
         raise RuntimeError(f"Could not load the Search Console service-account credentials: {exc}") from exc
     session = AuthorizedSession(credentials)
@@ -132,15 +140,18 @@ def store_search_console_rows(database_path, rows, property_url, start_date, end
     }
 
 
-def sync_search_console(database_path, property_url, credentials_path, today=None):
-    if not property_url or not credentials_path:
+def sync_search_console(
+    database_path, property_url, credentials_path=None, today=None, credentials_info=None
+):
+    if not property_url or (not credentials_path and credentials_info is None):
         return {"status": "not-configured"}
-    credentials_file = Path(credentials_path)
-    if not credentials_file.is_file():
-        raise RuntimeError(f"Search Console service-account file not found: {credentials_file}")
+    credentials_file = Path(credentials_path) if credentials_path else None
+    if credentials_info is None:
+        if not credentials_file.is_file():
+            raise RuntimeError(f"Search Console service-account file not found: {credentials_file}")
     start_date, end_date = reporting_period(today=today)
     rows, truncated = fetch_search_console_rows(
-        property_url, credentials_file, start_date, end_date
+        property_url, credentials_file, start_date, end_date, credentials_info=credentials_info
     )
     return store_search_console_rows(
         database_path, rows, property_url, start_date, end_date, truncated

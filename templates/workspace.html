@@ -156,7 +156,7 @@
         {% elif page == 'search_console' %}
           <section class="workspace-intro"><p class="eyebrow">GOOGLE ORGANIC SEARCH</p><h2>Find the searches that can bring more readers.</h2><p>Search Console reports real Google clicks, impressions, click-through rate, and average position. Recommendations highlight pages that may benefit from a content refresh or a clearer search snippet; they do not guarantee ranking changes.</p></section>
           {% if not search_console_configured %}
-            <section class="workspace-panel"><h2>Connect a verified public site</h2><p>{{ search_console_reason }}</p><p>Once the domain is live, verify it in Google Search Console, enable the Search Console API in Google Cloud, create a service account, and grant that account access to the verified property. Keep its JSON key outside the repository.</p></section>
+            <section class="workspace-panel"><h2>Connect a verified public site</h2><p>{{ search_console_reason }}</p><p>Verify the site in Google Search Console, enable the Search Console API in Google Cloud, create a service account, and grant that account access to the verified property. On Railway, store the downloaded key as the GOOGLE_SEARCH_CONSOLE_CREDENTIALS_JSON secret variable; never paste it into the repository or a chat.</p></section>
           {% else %}
             <form class="workspace-panel" method="post" action="{{ url_for('sync_search_console_report') }}">
               {{ csrf_input() }}

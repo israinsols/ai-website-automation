@@ -3462,15 +3462,37 @@ def search_console_configuration():
     credentials_path = Path(credential_value) if credential_value else None
     if credentials_path and not credentials_path.is_absolute():
         credentials_path = ROOT / credentials_path
+    credentials_json = os.getenv("GOOGLE_SEARCH_CONSOLE_CREDENTIALS_JSON", "").strip()
+    credentials_info = None
+    credentials_json_error = ""
+    if credentials_json:
+        try:
+            parsed_credentials = json.loads(credentials_json)
+        except json.JSONDecodeError:
+            credentials_json_error = (
+                "GOOGLE_SEARCH_CONSOLE_CREDENTIALS_JSON must contain valid service-account JSON."
+            )
+        else:
+            if not isinstance(parsed_credentials, dict) or not parsed_credentials:
+                credentials_json_error = (
+                    "GOOGLE_SEARCH_CONSOLE_CREDENTIALS_JSON must contain a service-account JSON object."
+                )
+            else:
+                credentials_info = parsed_credentials
 
     public_site = urlparse(os.getenv("PUBLIC_SITE_URL", "").strip())
     if public_site.scheme != "https" or not public_site.netloc:
         reason = "Set PUBLIC_SITE_URL to this site's public HTTPS address."
     elif not property_name:
         reason = "Set GOOGLE_SEARCH_CONSOLE_PROPERTY to the verified Search Console property."
-    elif not credentials_path:
-        reason = "Set GOOGLE_SEARCH_CONSOLE_CREDENTIALS_FILE to a private service-account JSON file."
-    elif not credentials_path.is_file():
+    elif credentials_json_error:
+        reason = credentials_json_error
+    elif credentials_info is None and not credentials_path:
+        reason = (
+            "Set GOOGLE_SEARCH_CONSOLE_CREDENTIALS_JSON as a Railway secret, or set "
+            "GOOGLE_SEARCH_CONSOLE_CREDENTIALS_FILE to a private service-account JSON file."
+        )
+    elif credentials_info is None and not credentials_path.is_file():
         reason = "The configured Search Console service-account JSON file was not found."
     elif property_name.startswith("sc-domain:"):
         property_host = property_name[len("sc-domain:"):].strip().casefold()
@@ -3491,6 +3513,7 @@ def search_console_configuration():
     return {
         "property": property_name,
         "credentials_path": credentials_path,
+        "credentials_info": credentials_info,
         "ready": not reason,
         "reason": reason,
     }
@@ -3504,6 +3527,7 @@ def sync_search_console_data():
         DATABASE_PATH,
         config["property"],
         config["credentials_path"],
+        credentials_info=config["credentials_info"],
     )
 
 
