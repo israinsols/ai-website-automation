@@ -70,6 +70,18 @@ class ContentQualityEnhancementsTests(unittest.TestCase):
         self.assertEqual(schema["author"]["@type"], "Organization")
         self.assertEqual(schema["author"]["name"], "Urban Nest Interiors Editorial Team")
 
+    def test_article_schema_uses_current_site_brand_for_editorial_author(self):
+        tech_settings = {**app.DEFAULT_SITE_SETTINGS, "site_name": "Signal & Circuit", "category": "tech"}
+        with patch("app.load_site_settings", return_value=tech_settings), patch.dict(
+            "os.environ", {"EDITORIAL_TEAM_NAME": ""}
+        ):
+            schema = app.build_article_schema(
+                {"article_title": "A tech guide", "meta_description": "A useful tech guide."},
+                "https://example.com/blog/a-tech-guide",
+            )
+        self.assertEqual(schema["author"]["name"], "Signal & Circuit Editorial Team")
+        self.assertEqual(schema["articleSection"], "tech")
+
     def test_article_schema_only_uses_configured_http_logo_url(self):
         article = {"article_title": "Storage ideas", "meta_description": "Useful storage ideas."}
         canonical = "https://example.com/blog/storage-ideas"

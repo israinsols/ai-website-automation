@@ -46,6 +46,52 @@ class ArticleSeoValidationTests(unittest.TestCase):
         self.assertGreaterEqual(word_count, 900)
         self.assertLessEqual(word_count, 1300)
 
+    def test_short_segment_is_retried_with_an_expansion_instruction(self):
+        keyword = "secure home wifi network"
+        short_segment = (
+            "<h1>A Useful Guide</h1><h2>Start with your router</h2><p>"
+            + keyword + " " + " ".join(["practical"] * 265) + "</p>"
+        )
+        complete_segments = [
+            "<h1>A Useful Guide</h1><h2>Start with your router</h2><p>"
+            + keyword + " " + " ".join(["practical"] * 325) + "</p>",
+            "<h2>Protect connected devices</h2><p>" + " ".join(["devices"] * 330) + "</p>",
+            "<h2>Maintain your network</h2><p>" + " ".join(["security"] * 330) + "</p>",
+        ]
+
+        class Completions:
+            def __init__(self):
+                self.responses = [short_segment] + complete_segments
+                self.prompts = []
+
+            def create(self, **kwargs):
+                self.prompts.append(kwargs["messages"][1]["content"])
+                article_html = self.responses.pop(0)
+                fields = {
+                    "article_title": "A Useful Guide",
+                    "meta_title": "A Useful Guide",
+                    "meta_description": "Practical advice to secure a home Wi-Fi network.",
+                    "article_html": article_html,
+                }
+                message = type("Message", (), {"content": json.dumps(fields)})()
+                return type("Result", (), {"choices": [type("Choice", (), {"message": message})()]})()
+
+        completions = Completions()
+        client = type(
+            "Client",
+            (),
+            {"chat": type("Chat", (), {"completions": completions})()},
+        )()
+
+        article = main.generate_article(client, keyword, "tech")
+
+        self.assertEqual(len(completions.prompts), 4)
+        self.assertIn("only 276 words", completions.prompts[1])
+        self.assertIn("expand it", completions.prompts[1])
+        word_count = len(re.findall(r"\b[\w’'-]+\b", main.article_text(article["article_html"])))
+        self.assertGreaterEqual(word_count, 900)
+        self.assertLessEqual(word_count, 1300)
+
     def test_keyword_over_meta_title_limit_fails_with_actionable_message(self):
         keyword = "a focus keyword phrase that cannot fit inside the maximum sixty character seo title"
         with self.assertRaisesRegex(RuntimeError, "too long for the 60-character SEO title limit"):

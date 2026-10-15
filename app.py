@@ -2284,10 +2284,9 @@ def build_article_schema(article, canonical):
     author_name = article.get("author") or article.get("writer")
     author = {"@type": "Person", "name": author_name} if author_name else {
         "@type": "Organization",
-        "name": os.getenv("EDITORIAL_TEAM_NAME", "Urban Nest Interiors Editorial Team").strip()
-        or "Urban Nest Interiors Editorial Team",
+        "name": editorial_team_name(site_settings),
     }
-    cluster = article.get("topic_cluster") or article.get("niche") or "Home decor"
+    cluster = article.get("topic_cluster") or article.get("niche") or site_settings["category"]
     breadcrumb = {
         "@type": "BreadcrumbList",
         "itemListElement": [
@@ -2318,6 +2317,14 @@ def build_article_schema(article, canonical):
         "image": article_cover_image(article),
     }
     return schema
+
+
+def editorial_team_name(site_settings=None):
+    configured_name = os.getenv("EDITORIAL_TEAM_NAME", "").strip()
+    if configured_name:
+        return configured_name
+    site_settings = site_settings or load_site_settings()
+    return f"{site_settings['site_name']} Editorial Team"
 
 
 INFO_PAGES = {
@@ -4242,9 +4249,7 @@ def public_article(slug):
         article.get("niche", ""), article.get("keyword", "")
     )
     article["reading_time_minutes"] = article_reading_minutes(article)
-    article["author"] = article.get("author") or os.getenv(
-        "EDITORIAL_TEAM_NAME", "Urban Nest Interiors Editorial Team"
-    ).strip() or "Urban Nest Interiors Editorial Team"
+    article["author"] = article.get("author") or editorial_team_name()
     article["author_bio"] = article.get("author_bio") or os.getenv("EDITORIAL_TEAM_BIO", "").strip()
     canonical = article_canonical_url(article, slug=slug)
     schema = build_article_schema(article, canonical)

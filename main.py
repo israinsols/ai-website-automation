@@ -297,6 +297,7 @@ Return valid JSON only. Use JSON-escaped strings. The article_html value must co
         last_error = None
         segment = None
         for attempt in range(3):
+            word_count = None
             try:
                 completion = client.chat.completions.create(
                     model=model_id,
@@ -326,7 +327,24 @@ Return valid JSON only. Use JSON-escaped strings. The article_html value must co
             except Exception as exc:
                 last_error = exc
                 if attempt < 2:
-                    prompt += f"\nThe previous response failed: {exc}. Return the requested valid JSON with 320-450 words of HTML text."
+                    if word_count is not None and word_count < 320:
+                        prompt += (
+                            f"\nThe previous response was only {word_count} words after HTML tags were removed. "
+                            "Rewrite this same section and expand it with useful, specific detail until it contains "
+                            "320-450 words. Keep the requested headings and requirements, avoid repetition, and "
+                            "return the complete section as valid JSON."
+                        )
+                    elif word_count is not None:
+                        prompt += (
+                            f"\nThe previous response was {word_count} words after HTML tags were removed. "
+                            "Rewrite this same section more concisely so it contains 320-450 words, keeping its "
+                            "useful details and requested headings. Return the complete section as valid JSON."
+                        )
+                    else:
+                        prompt += (
+                            f"\nThe previous response failed: {exc}. Return the requested valid JSON with "
+                            "320-450 words of HTML text."
+                        )
         else:
             raise RuntimeError(f"Groq could not generate article segment {segment_index + 1}: {last_error}") from last_error
 
