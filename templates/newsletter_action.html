@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Newsletter | {{ site_name }}</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+  </head>
+  <body class="public-blog {{ site_profile_class }}" style="--primary: {{ site_theme.primary }}; --primary-dark: {{ site_theme.primary }}; --bg: {{ site_theme.background }};">
+    <main class="container blog-main">
+      <section class="empty-state newsletter-action">
+        {% if action == "confirm" %}
+          <p class="eyebrow">NEWSLETTER CONFIRMATION</p><h1>Confirm your subscription</h1>
+          <p>Confirm your email to receive a message when a new article is published.</p>
+          <form method="post">
+            <input type="hidden" name="_csrf_token" value="{{ csrf_token }}">
+            <button class="btn btn-primary" type="submit">Confirm subscription</button>
+          </form>
+        {% elif action == "unsubscribe" %}
+          <p class="eyebrow">NEWSLETTER PREFERENCES</p><h1>Unsubscribe from article updates?</h1>
+          <p>You can unsubscribe from new-article emails for {{ site_name }}.</p>
+          <form method="post">
+            <input type="hidden" name="_csrf_token" value="{{ csrf_token }}">
+            <button class="btn btn-primary" type="submit">Unsubscribe</button>
+          </form>
+        {% elif action == "unsubscribed" %}
+          <p class="eyebrow">NEWSLETTER PREFERENCES</p><h1>You are unsubscribed</h1>
+          <p>You will not receive further article update emails from {{ site_name }}.</p>
+        {% elif action == "expired" %}
+          <p class="eyebrow">NEWSLETTER CONFIRMATION</p><h1>This confirmation link has expired</h1>
+          <p>Sign up again to receive a fresh confirmation email.</p>
+        {% elif action == "not_subscribed" %}
+          <p class="eyebrow">NEWSLETTER PREFERENCES</p><h1>This subscription is no longer active</h1>
+          <p>No further action is needed.</p>
+        {% else %}
+          <p class="eyebrow">NEWSLETTER</p><h1>This link is invalid</h1>
+          <p>It may have expired or already been used.</p>
+        {% endif %}
+        <a class="text-link" href="{{ url_for('home') }}">Back to {{ site_name }} <span aria-hidden="true">→</span></a>
+      </section>
+    </main>
+  </body>
+</html>

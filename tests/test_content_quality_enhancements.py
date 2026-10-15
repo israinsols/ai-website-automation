@@ -5,6 +5,40 @@ import app
 
 
 class ContentQualityEnhancementsTests(unittest.TestCase):
+    def test_article_quality_checks_report_structure_and_reference_coverage(self):
+        article = {
+            "keyword": "careful research",
+            "meta_title": "Careful research in practice",
+            "meta_description": "A useful guide to careful research.",
+            "article_html": (
+                "<h2>First section</h2><p>Opening details.</p>"
+                "<h2>Second section</h2><p>Further details.</p>"
+                "<h2>Third section</h2><p>Final details.</p>"
+            ),
+            "sources": [{"title": "Reference", "url": "https://example.com/reference"}],
+        }
+        checks = app.article_seo_checks(article)
+
+        self.assertTrue(checks["headings_ok"])
+        self.assertEqual(checks["heading_count"], 3)
+        self.assertTrue(checks["paragraphs_ok"])
+        self.assertEqual(checks["paragraph_count"], 3)
+        self.assertTrue(checks["sources_available"])
+        self.assertEqual(checks["source_count"], 1)
+
+    def test_article_quality_checks_flag_missing_structure_and_sources(self):
+        checks = app.article_seo_checks({
+            "keyword": "",
+            "meta_title": "",
+            "meta_description": "",
+            "article_html": "<p>One short paragraph.</p>",
+        })
+
+        self.assertFalse(checks["headings_ok"])
+        self.assertFalse(checks["paragraphs_ok"])
+        self.assertFalse(checks["sources_available"])
+        self.assertEqual(checks["source_count"], 0)
+
     def test_topic_clusters_include_pillar_and_supporting_topics(self):
         clusters = app.build_topic_clusters("home-decor", [])
         self.assertTrue(clusters)
@@ -69,6 +103,66 @@ class ContentQualityEnhancementsTests(unittest.TestCase):
             [item["id"] for item in app.related_articles(source, [source, recent_unrelated, recent_match, missing_slug])],
             ["match", "unrelated"],
         )
+
+    def test_exact_topic_keyword_beats_an_earlier_partial_cluster_match(self):
+        self.assertEqual(
+            app.topic_cluster_for_keyword("home-decor", "interior design trends for 2026"),
+            "Budget styling",
+        )
+        self.assertEqual(
+            app.topic_cluster_for_keyword("tech", "best budget laptops for students"),
+            "Devices and smart home",
+        )
+
+    def test_related_articles_rank_shared_keywords_ahead_of_stale_topic_labels(self):
+        source = {
+            "id": "source", "status": "Published", "slug": "source",
+            "niche": "tech", "topic_cluster": "Productivity and work",
+            "keyword": "beginner guide to password managers",
+            "article_title": "How to choose a password manager",
+            "meta_description": "Protect passwords for work accounts and secure access.",
+        }
+        recent_unrelated = {
+            "id": "unrelated", "status": "Published", "slug": "unrelated",
+            "niche": "tech", "topic_cluster": "Productivity and work",
+            "keyword": "remote work setup ideas", "article_title": "Remote work setup ideas",
+            "meta_description": "Create a more comfortable home office.",
+            "published_at": "2026-10-10",
+        }
+        relevant_but_mislabeled = {
+            "id": "relevant", "status": "Published", "slug": "relevant",
+            "niche": "tech", "topic_cluster": "Productivity and work",
+            "keyword": "password manager tools for teams",
+            "article_title": "Password manager tools for work",
+            "meta_description": "Protect passwords for work accounts with safer access tools.",
+            "published_at": "2026-10-01",
+        }
+        security_topic = {
+            "id": "security-topic", "status": "Published", "slug": "security-topic",
+            "niche": "tech", "topic_cluster": "Productivity and work",
+            "keyword": "beginner guide to password managers",
+            "article_title": "Password managers compared",
+            "meta_description": "Compare secure password tools.",
+            "published_at": "2026-09-29",
+        }
+        description_only_match = {
+            "id": "description-only", "status": "Published", "slug": "description-only",
+            "niche": "tech", "topic_cluster": "Productivity and work",
+            "keyword": "remote work setup ideas", "article_title": "A practical remote setup",
+            "meta_description": "Protect passwords for work accounts with safer access tools.",
+            "published_at": "2026-10-11",
+        }
+
+        related = app.related_articles(
+            source, [
+                source, recent_unrelated, relevant_but_mislabeled,
+                security_topic, description_only_match,
+            ]
+        )
+
+        self.assertEqual([item["id"] for item in related], ["security-topic", "relevant"])
+        self.assertEqual(related[0]["related_reason"], "Same topic: Digital security")
+        self.assertIn("password", related[1]["related_reason"])
 
 
 if __name__ == "__main__":

@@ -1,0 +1,23 @@
+<section id="newsletter" class="section newsletter-section">
+  <div class="container newsletter-box">
+    <div><p class="eyebrow">NEWSLETTER</p><h2>{{ newsletter_title }}</h2><p>{{ newsletter_description }}</p></div>
+    <div>
+      {% with messages = get_flashed_messages(with_categories=true) %}
+        {% for category, message in messages %}<div class="flash flash-{{ category }}" role="{% if category == 'error' %}alert{% else %}status{% endif %}">{{ message }}</div>{% endfor %}
+      {% endwith %}
+      {% if newsletter_delivery_configured %}
+        <form method="post" action="{{ url_for('newsletter_signup') }}">
+          <input type="hidden" name="_csrf_token" value="{{ csrf_token }}">
+          <input type="hidden" name="return_to" value="{{ newsletter_return_to }}">
+          <div class="submission-honeypot" aria-hidden="true"><label for="newsletter-company">Leave this field empty</label><input id="newsletter-company" name="company_website" tabindex="-1" autocomplete="off"></div>
+          <label class="visually-hidden" for="newsletter-email">Email address</label><input id="newsletter-email" name="email" type="email" maxlength="254" autocomplete="email" placeholder="you@example.com" required>
+          <label class="acknowledgement"><input type="checkbox" name="consent" required><span>I agree to receive article updates by email. See the <a href="{{ url_for('privacy_page') }}">Privacy page</a>.</span></label>
+          <button class="btn btn-primary" type="submit">Subscribe</button>
+          <p class="newsletter-note">Confirm your email to receive a message when a new article is published. Unsubscribe anytime.</p>
+        </form>
+      {% else %}
+        <p class="newsletter-note" role="status">Email signup is temporarily unavailable while the site owner configures newsletter delivery.</p>
+      {% endif %}
+    </div>
+  </div>
+</section>

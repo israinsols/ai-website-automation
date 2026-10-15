@@ -1,0 +1,134 @@
+AI Website Automation - Project Overview
+
+Project summary:
+This project is a Python-based Flask application for AI-powered SEO content publishing. It helps manage keywords, generate article drafts using Groq, review or approve content, and publish approved content to a built-in blog or external WordPress site. It is designed for niche editorial websites and supports multi-site profiles from a single codebase.
+
+Primary purpose:
+- Generate SEO-focused article drafts using AI
+- Manage keyword rotation without repeating used keywords until the full list is exhausted
+- Allow article review and approval workflows
+- Publish content to a built-in public blog
+- Support WordPress publishing and IndexNow submission
+- Manage public site settings, pages, newsletters, and traffic reporting
+- Run an autopilot publishing workflow for daily article generation and publication
+
+Technology stack:
+- Python
+- Flask
+- SQLite
+- Groq API
+- WordPress API integration
+- IndexNow
+- HTML/CSS/JS templates
+- dotenv-based environment configuration
+
+Core idea:
+The app acts like an editorial and publishing pl  atform for niche blogs. An admin signs in to a workspace, manages keywords, reviews AI-generated content, adds SEO metadata, and publishes articles. The public-facing site includes blog posts, standalone pages, site settings, sitemap, RSS feed, metadata, and SEO-ready page structure.
+
+Key features:
+1. Keyword management
+   - Keywords are loaded from keywords.json
+   - The system rotates through them so each keyword is used once before cycling again
+   - Used keywords are tracked in a local usage log file
+
+2. AI article generation
+   - Uses Groq to generate draft articles around selected keywords
+   - Produces article title, SEO title, meta description, and article HTML
+   - Includes validation rules and content safety checks
+
+3. Article review workflow
+   - Drafts or submissions can be reviewed before publishing
+   - SEO fields can be edited before publication
+   - Approved content appears in the site’s built-in blog
+
+4. Public site and blog functionality
+   - Built-in blog pages and article pages
+   - Public pages such as About, Contact, Privacy, and Editorial Policy
+   - Canonical URLs, social metadata, and structured data support
+   - Sitemap and RSS generation for published content
+
+5. Newsletter and submissions
+   - Public submission form for client articles
+   - Submissions stay private until approved
+   - Includes anti-spam protections such as honeypot and minimum completion time
+   - Can support reprint permission and external canonical rules
+
+6. Autopilot
+   - Daily automated publishing workflow
+   - Discovers long-tail topics, finds content ideas, generates articles, and publishes them
+   - Requires configured API keys and a scheduler in production
+
+7. Multi-site support
+   - Shared codebase can run separate profiles for different niches
+   - Example: Home Decor and Tech each have separate environment files, database files, and settings
+   - This allows multiple site profiles from the same repository without mixing content or settings
+
+8. SEO support
+   - Metadata, title validation, canonical URLs, sitemap, robots.txt, RSS feed
+   - Public content structure is optimized for SEO and indexing
+
+Project structure:
+- app.py: main Flask application and routes
+- main.py: content generation, validation, keyword logic, article processing
+- automation.py: scheduled/autopilot workflow for automated publishing
+- README.md: setup and usage instructions
+- keywords.json: keyword source for generation
+- .env.example: base environment variables
+- .env.tech.example: second-site profile example
+- templates/: HTML templates for app and site pages
+- static/: CSS, JS, and static assets
+- data/: local SQLite DB and generated JSON files
+- tests/: project tests for article SEO validation, site management, and autopilot logic
+
+Important architectural design:
+- The app is profile-based via ENV_FILE and DATABASE_PATH
+- Each running profile can have its own database, site settings, article state, and keyword queue
+- The same codebase can power multiple publications at once
+- App logic and data are intentionally separated by profile so the site can behave like independent brand environments
+
+How the flow works:
+1. Admin configures environment variables and site settings
+2. Keywords are loaded and used in a rotating sequence
+3. AI generates a draft based on a keyword/topic
+4. The article is validated for SEO and content structure
+5. The admin reviews and edits title/meta/HTML
+6. The article is published to the blog/public site
+7. Sitemap, RSS, metadata, and related pages update automatically
+8. Optional autopilot runs daily and publishes new posts automatically
+
+Main configuration variables:
+- GROQ_API_KEY: required for AI generation
+- GROQ_MODEL: model selection for Groq
+- DATABASE_PATH: site-specific database path
+- SITE_NICHE: site category/niche, such as home-decor or tech
+- PUBLIC_SITE_URL: public domain origin
+- WP_SITE_URL and WP_AUTH_TOKEN: WordPress publishing
+- INDEXNOW_KEY / INDEXNOW_KEY_LOCATION: indexing integration
+- ALLOW_PUBLIC_SUBMISSIONS: enables public article submissions
+- FLASK_SECRET_KEY: needed for secure sessions in production
+
+Typical use cases:
+- A niche SEO blog wanting AI-assisted article generation
+- A content team needing a review before publishing workflow
+- A startup running multiple brand sites from the same codebase
+- A small publishing operation automating long-tail SEO content publication
+
+Risk and production notes:
+- Autopilot publishing can publish without individual approval if enabled
+- Public-facing SEO configuration should be reviewed carefully before launch
+- Privacy, terms, and contact policies should be aligned with the actual hosting and analytics setup
+- This app works as a local/content-manager system, and production deployment requires secure environment management and domain configuration
+
+Developer onboarding guidance:
+- Start with app.py to understand route flow and site configuration
+- Review main.py for article generation, validation, and keyword cycling logic
+- Check README.md for all runtime, setup, and deployment expectations
+- Inspect .env.example and .env.tech.example to understand profile configuration
+- Review templates and static assets after the backend flow is clear
+- Use tests as a guide for expected behavior, especially around SEO validation and autopilot logic
+
+In one sentence:
+This project is a multi-site AI SEO publishing platform that combines keyword-driven content generation, editorial review, site management, public blog publishing, and automation in a single Flask-based system.
+
+Repository root:
+C:\Users\ccslaptophyd\ai-website-automation

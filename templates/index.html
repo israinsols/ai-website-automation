@@ -7,10 +7,16 @@
     <meta name="description" content="{{ site_description }}">
     <link rel="canonical" href="{{ canonical }}">
     <meta property="og:type" content="website">
+    <meta property="og:site_name" content="{{ site_name }}">
     <meta property="og:title" content="{{ site_name }} | {{ selected_niche | replace('-', ' ') | title }} Journal">
     <meta property="og:description" content="{{ site_description }}">
     <meta property="og:url" content="{{ canonical }}">
-    <meta name="twitter:card" content="summary">
+    <meta property="og:image" content="{{ hero_image_url }}">
+    <meta property="og:image:alt" content="{{ hero_image_alt }}">
+    <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:title" content="{{ site_name }} | {{ selected_niche | replace('-', ' ') | title }} Journal">
+    <meta name="twitter:description" content="{{ site_description }}">
+    <meta name="twitter:image" content="{{ hero_image_url }}">
     {% if google_site_verification %}<meta name="google-site-verification" content="{{ google_site_verification }}">{% endif %}
     <script type="application/ld+json">{{ schema | tojson }}</script>
     <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
@@ -19,9 +25,15 @@
     <header class="topbar" id="top">
       <div class="container nav">
         <a class="brand" href="{{ url_for('home') }}">{{ site_name }}</a>
-        <nav aria-label="Main navigation">
+        <button class="site-menu-toggle" type="button" data-menu-toggle aria-expanded="false" aria-controls="site-navigation">
+          <span class="visually-hidden">Open navigation menu</span><span class="site-menu-icon" aria-hidden="true"></span>
+        </button>
+        <nav id="site-navigation" class="site-navigation" aria-label="Main navigation">
+          <a href="{{ url_for('saved_articles') }}">Saved stories</a>
           {% for item in site_navigation %}<a href="{{ item.url }}"{% if item.url.startswith('http') %} target="_blank" rel="noopener noreferrer"{% endif %}>{{ item.label }}</a>{% endfor %}
-          <a href="{{ url_for('dashboard') }}" class="btn btn-light">Open workspace</a>
+          {% if client_logged_in %}
+            <a href="{{ url_for('client_portal') }}" class="btn btn-primary">My client dashboard</a>
+          {% endif %}
         </nav>
       </div>
     </header>
@@ -39,7 +51,7 @@
               {{ site_description }}
             </p>
             <div class="actions">
-              <a href="{{ url_for('dashboard') }}" class="btn btn-primary">Open the workspace</a>
+              <a href="{{ url_for('client_portal') if client_logged_in else url_for('submit_article') }}" class="btn btn-primary">{% if client_logged_in %}Open client dashboard{% else %}Submit an article{% endif %}</a>
               <a href="#features" class="btn btn-secondary">See how it works</a>
             </div>
           </div>
@@ -76,7 +88,7 @@
         </div>
       </section>
 
-      {% if journal_articles %}
+      {% if editor_pick or journal_articles %}
       <section class="home-journal section" aria-labelledby="home-journal-title">
         <div class="container">
           <div class="home-journal-heading">
@@ -86,12 +98,37 @@
               <a class="home-journal-link" href="{{ url_for('public_blog') }}">View all stories <span aria-hidden="true">↗</span></a>
             </div>
           </div>
+          {% if editor_pick %}
+          <article class="home-editor-pick home-journal-card" data-story-card data-category="{{ editor_pick.topic_cluster }}" data-search="{{ editor_pick.keyword }} {{ editor_pick.topic_cluster }} {{ editor_pick.article_title }} {{ editor_pick.meta_description }}">
+            <a class="home-editor-pick-image" href="{{ url_for('public_article', slug=editor_pick.slug) }}"><img src="{{ editor_pick.cover_image_url }}" alt="{{ editor_pick.article_title }}" fetchpriority="high"></a>
+            <div class="home-editor-pick-copy">
+              <p class="eyebrow">{% if selected_niche == 'tech' %}EDITOR’S PICK · {{ editor_pick.topic_cluster }}{% else %}THE EDITOR’S PICK · {{ editor_pick.topic_cluster }}{% endif %} · {{ editor_pick.reading_time_minutes }} MIN READ</p>
+              <h3><a href="{{ url_for('public_article', slug=editor_pick.slug) }}">{{ editor_pick.article_title }}</a></h3>
+              <p>{{ editor_pick.meta_description }}</p>
+              <a class="home-journal-read" href="{{ url_for('public_article', slug=editor_pick.slug) }}">Read the story <span aria-hidden="true">→</span></a>
+            </div>
+          </article>
+          {% endif %}
+          <div class="home-discovery-tools">
+            <div class="home-category-filters" role="group" aria-label="Filter stories by category">
+              <button class="home-filter-chip is-active" type="button" data-category-filter="all" aria-pressed="true">All stories</button>
+              {% for category in homepage_categories %}
+              <button class="home-filter-chip" type="button" data-category-filter="{{ category }}" aria-pressed="false">{{ category }}</button>
+              {% endfor %}
+            </div>
+            <div class="home-popular-topics">
+              <span class="home-popular-label">{% if selected_niche == 'tech' %}POPULAR TOPICS{% else %}POPULAR IDEAS{% endif %}</span>
+              {% for topic in homepage_popular_topics %}
+              <button class="home-topic-chip" type="button" data-topic-filter="{{ topic }}">{{ topic }}</button>
+              {% endfor %}
+            </div>
+          </div>
           <div class="home-journal-grid">
             {% for article in journal_articles %}
-            <article class="home-journal-card">
-              <a class="home-journal-image" href="{{ url_for('public_article', slug=article.slug) }}"><img src="{{ article.cover_image_url }}" alt="{{ article.article_title }}" loading="lazy"></a>
+            <article class="home-journal-card" data-story-card data-category="{{ article.topic_cluster }}" data-search="{{ article.keyword }} {{ article.topic_cluster }} {{ article.article_title }} {{ article.meta_description }}">
+              <a class="home-journal-image" href="{{ url_for('public_article', slug=article.slug) }}"><img src="{{ article.cover_image_url }}" alt="{{ article.cover_image_alt or article.article_title }}" loading="lazy"></a>
               <div class="home-journal-copy">
-                <p class="eyebrow">{{ article.topic_cluster }} <span aria-hidden="true">·</span> {{ (article.published_at or article.created_at)[:10] }}</p>
+                <p class="eyebrow">{{ article.topic_cluster }} <span aria-hidden="true">·</span> {{ (article.published_at or article.created_at)[:10] }} <span aria-hidden="true">·</span> {{ article.reading_time_minutes }} min read</p>
                 <h3><a href="{{ url_for('public_article', slug=article.slug) }}">{{ article.article_title }}</a></h3>
                 <p>{{ article.meta_description }}</p>
                 <a class="home-journal-read" href="{{ url_for('public_article', slug=article.slug) }}">Read story <span aria-hidden="true">→</span></a>
@@ -100,6 +137,60 @@
             {% endfor %}
           </div>
           <p class="home-story-search-empty" data-story-search-empty role="status" hidden>No matching stories yet. Try another search.</p>
+        </div>
+      </section>
+      {% endif %}
+
+      {% if more_journal_articles %}
+      <section class="home-journal home-journal-more section" aria-labelledby="home-journal-more-title" data-home-more-section>
+        <div class="container">
+          <div class="home-journal-heading">
+            <div><p class="eyebrow">{% if selected_niche == 'tech' %}MORE TO DISCOVER{% else %}A FEW MORE GOOD IDEAS{% endif %}</p><h2 id="home-journal-more-title">{% if selected_niche == 'tech' %}More stories for curious minds.{% else %}More inspiration for your home.{% endif %}</h2></div>
+            <a class="home-journal-link" href="{{ url_for('public_blog') }}">Browse the journal <span aria-hidden="true">↗</span></a>
+          </div>
+          <div class="home-journal-grid">
+            {% for article in more_journal_articles %}
+            <article class="home-journal-card" data-story-card data-load-more-card data-category="{{ article.topic_cluster }}" data-search="{{ article.keyword }} {{ article.topic_cluster }} {{ article.article_title }} {{ article.meta_description }}"{% if loop.index > 3 %} hidden{% endif %}>
+              <a class="home-journal-image" href="{{ url_for('public_article', slug=article.slug) }}"><img src="{{ article.cover_image_url }}" alt="{{ article.cover_image_alt or article.article_title }}" loading="lazy"></a>
+              <div class="home-journal-copy">
+                <p class="eyebrow">{{ article.topic_cluster }} <span aria-hidden="true">·</span> {{ (article.published_at or article.created_at)[:10] }} <span aria-hidden="true">·</span> {{ article.reading_time_minutes }} min read</p>
+                <h3><a href="{{ url_for('public_article', slug=article.slug) }}">{{ article.article_title }}</a></h3>
+                <p>{{ article.meta_description }}</p>
+                <a class="home-journal-read" href="{{ url_for('public_article', slug=article.slug) }}">Read story <span aria-hidden="true">→</span></a>
+              </div>
+            </article>
+            {% endfor %}
+          </div>
+          {% if more_journal_articles|length > 3 %}
+          <div class="home-load-more-wrap">
+            <p data-load-more-status aria-live="polite">Showing 7 of {{ homepage_article_count }} stories</p>
+            <button class="btn btn-secondary" type="button" data-load-more>Load more stories <span aria-hidden="true">↓</span></button>
+          </div>
+          {% endif %}
+        </div>
+      </section>
+      {% endif %}
+
+      {% if popular_articles %}
+      <section class="home-popular section" aria-labelledby="home-popular-title">
+        <div class="container">
+          <div class="home-journal-heading">
+            <div><p class="eyebrow">{% if selected_niche == 'tech' %}READER FAVORITES{% else %}READER FAVORITES{% endif %}</p><h2 id="home-popular-title">Most-read stories</h2></div>
+            <span class="home-popular-period">Based on recorded article reads</span>
+          </div>
+          <div class="home-journal-grid">
+            {% for article in popular_articles %}
+            <article class="home-journal-card">
+              <a class="home-journal-image" href="{{ url_for('public_article', slug=article.slug) }}"><img src="{{ article.cover_image_url }}" alt="{{ article.cover_image_alt or article.article_title }}" loading="lazy"></a>
+              <div class="home-journal-copy">
+                <p class="eyebrow">{{ article.topic_cluster }} <span aria-hidden="true">·</span> {{ article.view_count }} {{ "read" if article.view_count == 1 else "reads" }} <span aria-hidden="true">·</span> {{ article.reading_time_minutes }} min read</p>
+                <h3><a href="{{ url_for('public_article', slug=article.slug) }}">{{ article.article_title }}</a></h3>
+                <p>{{ article.meta_description }}</p>
+                <a class="home-journal-read" href="{{ url_for('public_article', slug=article.slug) }}">Read story <span aria-hidden="true">→</span></a>
+              </div>
+            </article>
+            {% endfor %}
+          </div>
         </div>
       </section>
       {% endif %}
@@ -128,8 +219,8 @@
             <h2>Built for {{ selected_niche | replace('-', ' ') }}</h2>
           </div>
           <div class="topic-list">
-            {% for topic in topics %}
-            <span>{{ topic }}</span>
+            {% for topic in homepage_popular_topics %}
+            <button class="home-topic-chip" type="button" data-topic-filter="{{ topic }}">{{ topic }}</button>
             {% endfor %}
           </div>
         </div>
@@ -164,18 +255,7 @@
         </div>
       </section>
       {% if newsletter_enabled %}
-      <section id="newsletter" class="section newsletter-section">
-        <div class="container newsletter-box">
-          <div><p class="eyebrow">NEWSLETTER</p><h2>{{ newsletter_title }}</h2><p>{{ newsletter_description }}</p></div>
-          <form method="post" action="{{ url_for('newsletter_signup') }}">
-            <input type="hidden" name="_csrf_token" value="{{ csrf_token }}">
-            <div class="submission-honeypot" aria-hidden="true"><label for="newsletter-company">Leave this field empty</label><input id="newsletter-company" name="company_website" tabindex="-1" autocomplete="off"></div>
-            <label class="visually-hidden" for="newsletter-email">Email address</label><input id="newsletter-email" name="email" type="email" maxlength="254" autocomplete="email" placeholder="you@example.com" required>
-            <label class="acknowledgement"><input type="checkbox" name="consent" required><span>I agree to receive newsletter updates. See the <a href="{{ url_for('privacy_page') }}">Privacy page</a>.</span></label>
-            <button class="btn btn-primary" type="submit">Subscribe</button>
-          </form>
-        </div>
-      </section>
+      {% with newsletter_return_to=url_for('home') %}{% include "newsletter_signup.html" %}{% endwith %}
       {% endif %}
     </main>
     <footer class="public-footer home-footer">

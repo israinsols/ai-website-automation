@@ -4,7 +4,7 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>{% if page == 'setup' %}Choose a niche{% elif page == 'site_manager' %}Site manager{% elif page in ['pages', 'page_editor'] %}Pages{% elif page == 'newsletter' %}Newsletter{% elif page == 'keywords' %}Keyword studio{% elif page == 'articles' %}Article studio{% elif page == 'article_detail' %}Article review{% elif page == 'submit' %}Submit an article{% else %}Workspace overview{% endif %} | {{ site_name }}</title>
+    <title>{% if page == 'setup' %}Choose a niche{% elif page == 'site_manager' %}Site manager{% elif page == 'sites' %}Sites{% elif page in ['pages', 'page_editor'] %}Pages{% elif page == 'newsletter' %}Newsletter{% elif page == 'keywords' %}Keyword studio{% elif page == 'articles' %}Article studio{% elif page == 'images' %}Image library{% elif page == 'article_detail' %}Article review{% elif page == 'search_console' %}Search Console{% else %}Workspace overview{% endif %} | {{ site_name }}</title>
     <meta name="robots" content="noindex,nofollow">
     <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
   </head>
@@ -15,23 +15,23 @@
         <p class="sidebar-label">WORKSPACE</p>
         <nav class="workspace-nav" aria-label="Workspace">
           <a class="{% if page == 'dashboard' %}active{% endif %}" href="{{ url_for('dashboard') }}"><span>01</span>Overview</a>
-          <a class="{% if page == 'strategy' %}active{% endif %}" href="{{ url_for('strategy') }}"><span>02</span>Growth plan</a>
-          <a class="{% if page == 'calendar' %}active{% endif %}" href="{{ url_for('calendar') }}"><span>03</span>Calendar</a>
+          <a class="{% if page == 'sites' %}active{% endif %}" href="{{ url_for('site_overview') }}"><span>02</span>Sites</a>
+          <a class="{% if page == 'strategy' %}active{% endif %}" href="{{ url_for('strategy') }}"><span>03</span>Growth plan</a>
           <a class="{% if page == 'autopilot' %}active{% endif %}" href="{{ url_for('autopilot_settings') }}"><span>04</span>Autopilot</a>
-          <a class="{% if page == 'setup' %}active{% endif %}" href="{{ url_for('setup') }}"><span>05</span>Niche setup</a>
-          <a class="{% if page == 'site_manager' %}active{% endif %}" href="{{ url_for('site_manager') }}"><span>06</span>Site manager</a>
-          <a class="{% if page in ['pages', 'page_editor'] %}active{% endif %}" href="{{ url_for('manage_pages') }}"><span>07</span>Pages</a>
-          <a class="{% if page == 'newsletter' %}active{% endif %}" href="{{ url_for('newsletter_settings') }}"><span>08</span>Newsletter</a>
-          <a class="{% if page == 'keywords' %}active{% endif %}" href="{{ url_for('keywords') }}"><span>09</span>Keyword studio</a>
-          <a class="{% if page in ['articles', 'article_detail'] %}active{% endif %}" href="{{ url_for('articles') }}"><span>10</span>Articles</a>
-          <a class="{% if page == 'submit' %}active{% endif %}" href="{{ url_for('submit_article') }}"><span>11</span>Submit article</a>
-          <a class="{% if page == 'traffic' %}active{% endif %}" href="{{ url_for('traffic_report') }}"><span>12</span>Traffic report</a>
+          <a class="{% if page == 'site_manager' %}active{% endif %}" href="{{ url_for('site_manager') }}"><span>05</span>Site manager</a>
+          <a class="{% if page in ['pages', 'page_editor'] %}active{% endif %}" href="{{ url_for('manage_pages') }}"><span>06</span>Pages</a>
+          <a class="{% if page == 'newsletter' %}active{% endif %}" href="{{ url_for('newsletter_settings') }}"><span>07</span>Newsletter</a>
+          <a class="{% if page == 'keywords' %}active{% endif %}" href="{{ url_for('keywords') }}"><span>08</span>Keyword studio</a>
+          <a class="{% if page in ['articles', 'article_detail'] %}active{% endif %}" href="{{ url_for('articles') }}"><span>09</span>Articles</a>
+          <a class="{% if page == 'traffic' %}active{% endif %}" href="{{ url_for('traffic_report') }}"><span>10</span>Reader analytics</a>
+          <a class="{% if page == 'search_console' %}active{% endif %}" href="{{ url_for('search_console_report') }}"><span>11</span>Search Console</a>
+          <a class="{% if page == 'images' %}active{% endif %}" href="{{ url_for('image_library') }}"><span>12</span>Images</a>
         </nav>
         <div class="sidebar-bottom"><span class="connection-dot"></span><span>Local workspace</span><a href="{{ url_for('public_blog') }}">View blog</a><a href="{{ url_for('home') }}">View home page</a>{% if admin_logged_in %}<a href="{{ url_for('admin_backup') }}">Download backup</a><form class="logout-form" method="post" action="{{ url_for('logout') }}"><input type="hidden" name="_csrf_token" value="{{ csrf_token }}"><button type="submit">Sign out {{ admin_username }}</button></form>{% elif admin_login_enabled %}<a href="{{ url_for('login') }}">Admin sign in</a>{% endif %}</div>
       </aside>
 
       <main class="workspace-main">
-        <header class="workspace-topbar"><div><span class="crumb">WORKSPACE / {{ page | replace('_', ' ') | upper }}</span><h1>{% if page == 'setup' %}Choose a niche{% elif page == 'site_manager' %}Site manager{% elif page == 'pages' %}Manage pages{% elif page == 'page_editor' %}Edit page{% elif page == 'newsletter' %}Newsletter subscribers{% elif page == 'strategy' %}Growth plan{% elif page == 'calendar' %}Content calendar{% elif page == 'autopilot' %}Daily autopilot{% elif page == 'keywords' %}Keyword studio{% elif page == 'articles' %}Article studio{% elif page == 'article_detail' %}Article review{% elif page == 'submit' %}Submit an article{% elif page == 'traffic' %}Traffic report{% else %}Content overview{% endif %}</h1></div><div class="niche-indicator"><span>ACTIVE NICHE</span><strong>{{ selected_niche }}</strong></div></header>
+        <header class="workspace-topbar"><div><span class="crumb">WORKSPACE / {{ page | replace('_', ' ') | upper }}</span><h1>{% if page == 'setup' %}Choose a niche{% elif page == 'site_manager' %}Site manager{% elif page == 'sites' %}Your sites{% elif page == 'pages' %}Manage pages{% elif page == 'page_editor' %}Edit page{% elif page == 'newsletter' %}Newsletter subscribers{% elif page == 'strategy' %}Growth plan{% elif page == 'calendar' %}Content calendar{% elif page == 'autopilot' %}Daily autopilot{% elif page == 'keywords' %}Keyword studio{% elif page == 'articles' %}Article studio{% elif page == 'images' %}Image library{% elif page == 'article_detail' %}Article review{% elif page == 'traffic' %}Reader analytics{% elif page == 'search_console' %}Search Console{% else %}Content overview{% endif %}</h1></div><div class="niche-indicator"><span>ACTIVE NICHE</span><strong>{{ selected_niche }}</strong></div></header>
 
         {% with messages = get_flashed_messages(with_categories=true) %}
           {% if messages %}<div class="flash-stack">{% for category, message in messages %}<div class="flash flash-{{ category }}">{{ message }}</div>{% endfor %}</div>{% endif %}
@@ -70,7 +70,7 @@
             <label class="toggle-row"><input type="checkbox" name="newsletter_enabled" {% if site_settings.newsletter_enabled %}checked{% endif %}><span>Show the email signup section on the home page</span></label>
             <label for="newsletter-title">Newsletter headline</label><input id="newsletter-title" name="newsletter_title" maxlength="100" value="{{ site_settings.newsletter_title }}" required>
             <label for="newsletter-description">Newsletter description</label><textarea id="newsletter-description" name="newsletter_description" maxlength="300" rows="3" required>{{ site_settings.newsletter_description }}</textarea>
-            <div class="form-note">Signups are stored in this site's database. This app collects the email list but does not send newsletter emails.</div>
+            <div class="form-note">Subscribers must confirm by email. Confirmed subscribers are emailed when you publish an article. Configure SMTP in this site's .env file to enable newsletter signup and delivery.</div>
             <h2>Publishing mode</h2>
             <p class="form-note">Current mode: <strong>{% if autopilot_config.enabled %}Daily automatic publishing{% else %}Manual review before publishing{% endif %}</strong>. <a class="text-link" href="{{ url_for('autopilot_settings') }}">Change publishing mode in Autopilot settings</a>.</p>
             <button class="button button-primary" type="submit">Save website settings</button>
@@ -102,8 +102,8 @@
           </form>
 
         {% elif page == 'newsletter' %}
-          <section class="workspace-intro"><p class="eyebrow">EMAIL SIGNUPS</p><h2>Newsletter subscribers</h2><p>Subscriber lists are isolated by site and stored in its local database. Remove a subscriber when asked. No newsletter emails are sent by this app.</p></section>
-          {% if newsletter_subscribers %}<div class="article-table">{% for email, subscribed_at in newsletter_subscribers %}<div class="article-row"><span class="article-row-main"><strong>{{ email }}</strong><small>Subscribed {{ subscribed_at }}</small></span><form method="post" action="{{ url_for('remove_newsletter_subscriber') }}">{{ csrf_input() }}<input type="hidden" name="email" value="{{ email }}"><button class="button button-outline" type="submit">Remove</button></form></div>{% endfor %}</div>{% else %}<div class="empty-state compact"><p>No newsletter signups yet. Enable the signup section in Site manager.</p></div>{% endif %}
+          <section class="workspace-intro"><p class="eyebrow">EMAIL SIGNUPS</p><h2>Newsletter subscribers</h2><p>Lists are isolated by site. Subscribers confirm their email before receiving new-article messages; each message includes an unsubscribe link. {% if newsletter_delivery_configured %}Email delivery is configured.{% else %}Configure newsletter SMTP settings in this profile's .env file to enable signup and delivery.{% endif %}</p></section>
+          {% if newsletter_subscribers %}<div class="article-table">{% for email, subscribed_at, confirmed_at in newsletter_subscribers %}<div class="article-row"><span class="article-row-main"><strong>{{ email }}</strong><small>Signed up {{ subscribed_at }} · {{ "Confirmed" if confirmed_at else "Confirmation pending" }}</small></span><form method="post" action="{{ url_for('remove_newsletter_subscriber') }}">{{ csrf_input() }}<input type="hidden" name="email" value="{{ email }}"><button class="button button-outline" type="submit">Remove</button></form></div>{% endfor %}</div>{% else %}<div class="empty-state compact"><p>No newsletter signups yet. Enable the signup section in Site manager.</p></div>{% endif %}
 
         {% elif page == 'dashboard' %}
           <section class="welcome-band"><div><p class="eyebrow">YOUR CONTENT PIPELINE</p><h2>A clear view of what’s moving.</h2><p>Build a focused publishing queue for <strong>{{ selected_niche }}</strong>.</p></div><a class="button button-primary" href="{{ url_for('articles') }}">Create an article <span aria-hidden="true">→</span></a></section>
@@ -112,19 +112,101 @@
             <article class="metric"><span>READY TO REVIEW</span><strong>{{ all_articles | selectattr('status', 'in', ['Draft', 'Pending Review']) | list | length }}</strong><small>Drafts and client submissions</small></article>
             <article class="metric"><span>PUBLISHED</span><strong>{{ all_articles | selectattr('status', 'equalto', 'Published') | list | length }}</strong><small>Posts live on your blog</small></article>
           </section>
-          <section class="section-header"><div><p class="eyebrow">LATEST WORK</p><h2>Recent articles</h2></div><a class="text-link" href="{{ url_for('submit_article') }}">Submit an article <span aria-hidden="true">→</span></a></section>
-          {% if articles %}<div class="article-table">{% for article in articles %}<a class="article-row" href="{{ url_for('article_detail', article_id=article.id) }}"><span class="article-row-main"><strong>{{ article.meta_title }}</strong><small>{{ article.keyword }} · {{ article.created_at[:10] }}</small></span><span class="status status-{{ article.status | lower | replace(' ', '-') }}">{{ article.status }}</span><span class="row-arrow" aria-hidden="true">↗</span></a>{% endfor %}</div>{% else %}<div class="empty-state"><span class="empty-index">01</span><h3>Your content library is ready.</h3><p>Start with a client submission, a keyword idea, or an article draft.</p><a class="text-link" href="{{ url_for('submit_article') }}">Submit an article <span aria-hidden="true">→</span></a></div>{% endif %}
+          <section class="section-header"><div><p class="eyebrow">LATEST WORK</p><h2>Recent articles</h2></div><a class="text-link" href="{{ url_for('articles') }}">Create an article draft <span aria-hidden="true">→</span></a></section>
+          {% if articles %}<div class="article-table">{% for article in articles %}<a class="article-row" href="{{ url_for('article_detail', article_id=article.id) }}"><span class="article-row-main"><strong>{{ article.meta_title }}</strong><small>{{ article.keyword }} · {{ article.created_at[:10] }}</small></span><span class="status status-{{ article.status | lower | replace(' ', '-') }}">{{ article.status }}</span><span class="row-arrow" aria-hidden="true">↗</span></a>{% endfor %}</div>{% else %}<div class="empty-state"><span class="empty-index">01</span><h3>Your content library is ready.</h3><p>Start with a keyword idea or create an article draft.</p><a class="text-link" href="{{ url_for('articles') }}">Create an article draft <span aria-hidden="true">→</span></a></div>{% endif %}
+
+        {% elif page == 'sites' %}
+          <section class="workspace-intro"><p class="eyebrow">MULTI-SITE OVERVIEW</p><h2>See both publications in one place.</h2><p>Each profile keeps its own database and admin workspace. Open a site's workspace to manage its articles and settings; this overview never displays credentials or local database paths.</p></section>
+          <section class="site-profile-grid" aria-label="Configured site profiles">
+            {% for profile in site_profiles %}
+              <article class="site-profile-card">
+                <div class="site-profile-heading"><div><p class="eyebrow">SITE PROFILE</p><h2>{{ profile.site_name }}</h2></div><span class="check-state {% if profile.available and profile.initialized %}check-good{% endif %}">{% if not profile.available %}UNAVAILABLE{% elif profile.initialized %}READY{% else %}NOT SET UP{% endif %}</span></div>
+                {% if profile.available and profile.initialized %}
+                  <div class="site-profile-metrics"><div><strong>{{ profile.article_count }}</strong><span>Articles</span></div><div><strong>{{ profile.draft_count }}</strong><span>Drafts</span></div><div><strong>{{ profile.pending_count }}</strong><span>In review</span></div><div><strong>{{ profile.published_count }}</strong><span>Published</span></div></div>
+                {% elif not profile.available %}
+                  <p class="form-note">The profile database could not be read. Check the application log before continuing.</p>
+                {% else %}
+                  <p class="form-note">This site's database has not been initialized yet. Start its configured local app to set it up.</p>
+                {% endif %}
+                {% if profile.port %}<a class="button button-outline" href="http://127.0.0.1:{{ profile.port }}/" target="_blank" rel="noopener noreferrer">Open site workspace <span aria-hidden="true">↗</span></a>{% endif %}
+              </article>
+            {% else %}
+              <div class="empty-state"><h3>No site profiles configured.</h3><p>Configure a .env profile to add a site to this overview.</p></div>
+            {% endfor %}
+          </section>
 
         {% elif page == 'traffic' %}
-          <section class="workspace-intro"><p class="eyebrow">ANONYMOUS FIRST-PARTY REPORT</p><h2>Public page views</h2><p>Production page requests only; obvious bots are filtered. These are page views, not unique visitors, referrals, or Google Search Console clicks. No visitor IP, referrer, or analytics cookie is stored.</p></section>
-          <section class="metric-grid" aria-label="Traffic summary"><article class="metric"><span>PAGE VIEWS · LAST {{ traffic_days }} DAYS</span><strong>{{ traffic_total }}</strong><small>Aggregated by local calendar day</small></article></section>
-          <nav class="traffic-range" aria-label="Report period"><a href="{{ url_for('traffic_report', days=7) }}">7 days</a><a href="{{ url_for('traffic_report', days=30) }}">30 days</a><a href="{{ url_for('traffic_report', days=90) }}">90 days</a></nav>
+          <section class="workspace-intro"><p class="eyebrow">ANONYMOUS FIRST-PARTY REPORT</p><h2>See what readers are opening.</h2><p>Production page requests only; obvious bots are filtered. These are page views, not unique visitors, referrals, or Google Search Console clicks. No visitor IP, referrer, or analytics cookie is stored.</p></section>
+          <nav class="traffic-range" aria-label="Report period">{% for range in [7, 30, 90] %}<a href="{{ url_for('traffic_report', days=range) }}"{% if traffic_days == range %} aria-current="page"{% endif %}>{{ range }} days</a>{% endfor %}</nav>
+          <section class="metric-grid reader-metrics" aria-label="Reader analytics summary">
+            <article class="metric"><span>ALL PAGE VIEWS · {{ traffic_days }} DAYS</span><strong>{{ traffic_total }}</strong><small>Aggregate views across public pages</small></article>
+            <article class="metric"><span>ARTICLE VIEWS</span><strong>{{ traffic_article_total }}</strong><small>Views of currently published article pages</small></article>
+            <article class="metric"><span>ARTICLES WITH VIEWS</span><strong>{{ traffic_articles_with_views }}</strong><small>Published stories opened in this period</small></article>
+            <article class="metric"><span>VS. PREVIOUS {{ traffic_days }} DAYS</span><strong>{% if traffic_period_change is none %}—{% elif traffic_period_change > 0 %}+{{ traffic_period_change }}%{% else %}{{ traffic_period_change }}%{% endif %}</strong><small>{% if traffic_period_change is none %}No prior-period views to compare{% else %}Compared with the immediately preceding period{% endif %}</small></article>
+          </section>
+          <section class="traffic-report-section"><header class="section-header"><div><p class="eyebrow">STORY DISCOVERY</p><h2>Most-read articles</h2></div><span>Top {{ traffic_days }}-day stories</span></header>{% if traffic_top_articles %}<div class="traffic-table-wrap"><table class="traffic-table"><thead><tr><th scope="col">Article</th><th scope="col">Views</th></tr></thead><tbody>{% for article in traffic_top_articles %}<tr><td><a href="{{ article.url }}">{{ article.title }}</a></td><td>{{ article.views }}</td></tr>{% endfor %}</tbody></table></div>{% else %}<p class="form-note">No published article views have been recorded for this period.</p>{% endif %}</section>
+          <section class="traffic-report-section"><h2>Views by day</h2><div class="traffic-daily-chart" role="img" aria-label="Daily page views over the last {{ traffic_days }} days">{% for item in traffic_daily_chart %}<div class="traffic-daily-row"><time datetime="{{ item.date }}">{{ item.date[5:] }}</time><span class="traffic-daily-track"><span class="traffic-daily-bar" style="width: {{ item.bar_width }}%"></span></span><strong>{{ item.views }}</strong></div>{% endfor %}</div></section>
           <section class="traffic-report-section"><h2>Views by page</h2>{% if traffic_by_page %}<div class="traffic-table-wrap"><table class="traffic-table"><thead><tr><th scope="col">Page</th><th scope="col">Views</th></tr></thead><tbody>{% for page_key, view_count in traffic_by_page %}<tr><td>{{ page_key }}</td><td>{{ view_count }}</td></tr>{% endfor %}</tbody></table></div>{% else %}<p class="form-note">No production page views have been recorded for this period.</p>{% endif %}</section>
-          <section class="traffic-report-section"><h2>Views by day</h2>{% if traffic_by_day %}<div class="traffic-table-wrap"><table class="traffic-table"><thead><tr><th scope="col">Date</th><th scope="col">Views</th></tr></thead><tbody>{% for view_date, view_count in traffic_by_day %}<tr><td>{{ view_date }}</td><td>{{ view_count }}</td></tr>{% endfor %}</tbody></table></div>{% else %}<p class="form-note">No production page views have been recorded for this period.</p>{% endif %}</section>
+
+        {% elif page == 'search_console' %}
+          <section class="workspace-intro"><p class="eyebrow">GOOGLE ORGANIC SEARCH</p><h2>Find the searches that can bring more readers.</h2><p>Search Console reports real Google clicks, impressions, click-through rate, and average position. Recommendations highlight pages that may benefit from a content refresh or a clearer search snippet; they do not guarantee ranking changes.</p></section>
+          {% if not search_console_configured %}
+            <section class="workspace-panel"><h2>Connect a verified public site</h2><p>{{ search_console_reason }}</p><p>Once the domain is live, verify it in Google Search Console, enable the Search Console API in Google Cloud, create a service account, and grant that account access to the verified property. Keep its JSON key outside the repository.</p></section>
+          {% else %}
+            <form class="workspace-panel" method="post" action="{{ url_for('sync_search_console_report') }}">
+              {{ csrf_input() }}
+              <p><strong>Property:</strong> {{ search_console_property }}</p>
+              <p>Search Console data can be delayed by a few days. Sync requests the latest complete 28-day period.</p>
+              <button class="button button-primary" type="submit">Sync Search Console now <span aria-hidden="true">→</span></button>
+            </form>
+          {% endif %}
+          {% if search_console_synced_at %}
+            <p class="form-note">Last synced {{ search_console_synced_at }} · {{ search_console_start_date }} through {{ search_console_end_date }}{% if search_console_truncated %} · capped at 100,000 rows{% endif %}</p>
+            <section class="metric-grid reader-metrics" aria-label="Google search performance">
+              <article class="metric"><span>ORGANIC CLICKS · 28 DAYS</span><strong>{{ search_console_clicks }}</strong><small>Clicks from Google Search</small></article>
+              <article class="metric"><span>IMPRESSIONS</span><strong>{{ search_console_impressions }}</strong><small>Search-result appearances</small></article>
+              <article class="metric"><span>AVERAGE CTR</span><strong>{{ search_console_ctr }}%</strong><small>Clicks divided by impressions</small></article>
+              <article class="metric"><span>AVERAGE POSITION</span><strong>{{ search_console_position }}</strong><small>Weighted by impressions</small></article>
+            </section>
+            <section class="traffic-report-section"><header class="section-header"><div><p class="eyebrow">SEO OPPORTUNITIES</p><h2>Queries to work on</h2></div><span>{{ search_console_opportunities|length }} shown · {{ search_console_rows }} rows synced</span></header>
+              {% if search_console_opportunities %}
+                <div class="traffic-table-wrap"><table class="traffic-table"><thead><tr><th scope="col">Opportunity</th><th scope="col">Query and page</th><th scope="col">Clicks</th><th scope="col">Impressions</th><th scope="col">CTR</th><th scope="col">Position</th><th scope="col">Next step</th></tr></thead><tbody>
+                  {% for item in search_console_opportunities %}<tr><td>{{ item.kind }}</td><td><strong>{{ item.query }}</strong><br><a href="{{ item.page }}" target="_blank" rel="noopener noreferrer">{{ item.article_title or item.page }}</a></td><td>{{ item.clicks }}</td><td>{{ item.impressions }}</td><td>{{ item.ctr_percent }}%</td><td>{{ item.position }}</td><td>{{ item.action }}{% if item.article_id %}<br><a href="{{ url_for('article_detail', article_id=item.article_id) }}">Review article SEO</a>{% endif %}</td></tr>{% endfor %}
+                </tbody></table></div>
+              {% else %}<p class="form-note">No query/page rows meet the current opportunity thresholds yet. Search Console data is sampled and can take time to accumulate.</p>{% endif %}
+            </section>
+          {% else %}
+            <p class="form-note">No Search Console snapshot has been synced yet. Run the daily automation after configuring the integration, or sync it here.</p>
+          {% endif %}
 
         {% elif page == 'calendar' %}
-          <section class="workspace-intro"><p class="eyebrow">EDITORIAL SCHEDULE / {{ selected_niche }}</p><h2>Set a date to review each draft.</h2><p>Dates organize your workload; publishing remains a separate manual approval.</p></section>
-          {% if calendar_articles %}<div class="calendar-list">{% for article in calendar_articles %}<article class="calendar-row"><div class="calendar-article"><span class="status status-{{ article.status | lower | replace(' ', '-') }}">{{ article.status }}</span><h2><a href="{{ url_for('article_detail', article_id=article.id) }}">{{ article.article_title }}</a></h2><p>{{ article.keyword or 'No focus keyword' }} · {{ article.niche }}</p></div><form method="post" action="{{ url_for('calendar') }}"><input type="hidden" name="_csrf_token" value="{{ csrf_token }}"><input type="hidden" name="article_id" value="{{ article.id }}"><label for="schedule-{{ article.id }}">Review date</label><input id="schedule-{{ article.id }}" type="date" name="scheduled_for" value="{{ article.scheduled_for or '' }}"><button class="button button-outline" type="submit">Save date</button></form></article>{% endfor %}</div>{% else %}<div class="empty-state"><h3>No drafts waiting for a review date.</h3><p>Submitted articles and new drafts will appear here.</p></div>{% endif %}
+          <section class="workspace-intro"><p class="eyebrow">EDITORIAL SCHEDULE / {{ selected_niche }}</p><h2>Review drafts and plan approved releases.</h2><p>Review dates are reminders only. A scheduled publication requires your explicit approval and remains private until its local date and time. Automatic timing also requires a Windows Task Scheduler job running <code>automation.py --scheduled-publications</code> every five minutes, or an equivalent host scheduler.</p></section>
+          <section class="editorial-calendar" aria-label="Monthly editorial calendar">
+            <header class="editorial-calendar-header">
+              <a class="button button-outline" href="{{ url_for('calendar', month=calendar_previous_month) }}" aria-label="Previous month">←</a>
+              <h2>{{ calendar_month_label }}</h2>
+              <a class="button button-outline" href="{{ url_for('calendar', month=calendar_next_month) }}" aria-label="Next month">→</a>
+              <a class="calendar-today-link" href="{{ calendar_today_url }}">Today</a>
+            </header>
+            <div class="editorial-calendar-grid">
+              {% for weekday in calendar_weekdays %}<div class="editorial-calendar-weekday" aria-hidden="true">{{ weekday }}</div>{% endfor %}
+              {% for day in calendar_days %}
+                <a class="editorial-calendar-day{% if not day.in_month %} calendar-day-outside{% endif %}{% if day.is_today %} calendar-day-today{% endif %}{% if day.is_selected %} calendar-day-selected{% endif %}{% if day.events %} calendar-day-has-events{% endif %}" href="{{ day.url }}" aria-current="{% if day.is_selected %}date{% else %}false{% endif %}" aria-label="{{ day.date }}{% if day.events %}, {{ day.events|length }} scheduled item(s){% endif %}">
+                  <span class="calendar-day-number">{{ day.day }}</span>
+                  {% for event in day.events %}
+                    <span class="calendar-day-event{% if event.kind == 'Approved publication' %} calendar-event-publication{% endif %}"><span>{{ event.kind }}</span>{% if event.time %}<time>{{ event.time }}</time>{% endif %}</span>
+                  {% endfor %}
+                  {% if day.extra_events %}<span class="calendar-day-more">+{{ day.extra_events }} more</span>{% endif %}
+                </a>
+              {% endfor %}
+            </div>
+            <div class="calendar-legend"><span><i class="calendar-legend-review"></i>Review reminder</span><span><i class="calendar-legend-publication"></i>Approved publication</span></div>
+          </section>
+          <section class="calendar-selected-day"><header class="section-header"><div><p class="eyebrow">SELECTED DAY</p><h2>{{ calendar_selected_label }}</h2></div><span class="muted-note">{{ calendar_selected_events|length }} item(s)</span></header>
+            {% if calendar_selected_events %}<div class="calendar-selected-list">{% for event in calendar_selected_events %}<a class="calendar-selected-event" href="{{ event.url }}"><span class="calendar-selected-kind{% if event.kind == 'Approved publication' %} calendar-selected-publication{% endif %}">{{ event.kind }}{% if event.time %} · {{ event.time }}{% endif %}</span><strong>{{ event.title }}</strong><span aria-hidden="true">↗</span></a>{% endfor %}</div>
+            {% else %}<div class="empty-state compact"><p>No review reminders or approved publications on this day.</p></div>{% endif %}
+          </section>
+          {% if calendar_articles %}<div class="calendar-list">{% for article in calendar_articles %}<article class="calendar-row"><div class="calendar-article"><span class="status status-{{ article.status | lower | replace(' ', '-') }}">{{ article.status }}</span>{% if article.scheduled_publish_at %}<span class="calendar-scheduled-label">APPROVED · SCHEDULED FOR {{ article.scheduled_publish_at[:16] | replace('T', ' ') }}</span>{% endif %}<h2><a href="{{ url_for('article_detail', article_id=article.id) }}">{{ article.article_title }}</a></h2><p>{{ article.keyword or 'No focus keyword' }} · {{ article.niche }}</p></div><div class="calendar-actions"><form method="post" action="{{ url_for('calendar') }}"><input type="hidden" name="_csrf_token" value="{{ csrf_token }}"><input type="hidden" name="article_id" value="{{ article.id }}"><input type="hidden" name="action" value="review_date"><label for="review-date-{{ article.id }}">Review reminder date</label><input id="review-date-{{ article.id }}" type="date" name="scheduled_for" value="{{ article.scheduled_for or '' }}"><button class="button button-outline" type="submit">Save reminder</button></form><form method="post" action="{{ url_for('calendar') }}"><input type="hidden" name="_csrf_token" value="{{ csrf_token }}"><input type="hidden" name="article_id" value="{{ article.id }}"><input type="hidden" name="action" value="schedule_publication"><label for="publish-at-{{ article.id }}">Publish at (your local time)</label><input id="publish-at-{{ article.id }}" type="datetime-local" name="scheduled_publish_at" value="{{ article.scheduled_publish_input or '' }}" required><label class="acknowledgement calendar-publish-ack"><input type="checkbox" name="approve_scheduled_publication" required><span>I approve this article to publish automatically at this time.</span></label><button class="button button-primary" type="submit">{% if article.scheduled_publish_at %}Reschedule publication{% else %}Approve &amp; schedule{% endif %}</button></form>{% if article.scheduled_publish_at %}<form class="calendar-cancel-form" method="post" action="{{ url_for('calendar') }}"><input type="hidden" name="_csrf_token" value="{{ csrf_token }}"><input type="hidden" name="article_id" value="{{ article.id }}"><input type="hidden" name="action" value="cancel_publication"><button class="button button-outline" type="submit">Cancel scheduled publication</button></form>{% endif %}</div></article>{% endfor %}</div>{% else %}<div class="empty-state"><h3>No drafts waiting for review or scheduling.</h3><p>Submitted articles and new drafts will appear here.</p></div>{% endif %}
 
         {% elif page == 'autopilot' %}
           <section class="workspace-intro"><p class="eyebrow">AUTOMATED PUBLISHING / {{ selected_niche }}</p><h2>Let the system research, write, and publish one article a day.</h2><p>It selects a new long-tail topic from current web signals, researches sources, generates an SEO-checked draft, and publishes it to the built-in blog.</p></section>
@@ -167,28 +249,9 @@
             {% endif %}
           </section>
 
-        {% elif page == 'submit' %}
-          <section class="workspace-intro"><p class="eyebrow">CLIENT SUBMISSION / {{ selected_niche }}</p><h2>Send an article for review.</h2><p>Submissions stay private until reviewed. Reprinting requires permission and does not guarantee publication, traffic, or rankings.</p></section>
-          <form class="workspace-panel generator-form" method="post">
-            {{ csrf_input() }}
-            <div class="submission-honeypot" aria-hidden="true"><label for="company-website">Leave this field empty</label><input id="company-website" name="company_website" tabindex="-1" autocomplete="off"></div>
-            <label for="submission-title">Article title</label><input id="submission-title" name="title" maxlength="180" required>
-            <label for="author">Your name</label><input id="author" name="author" maxlength="100" placeholder="Optional">
-            <label for="contributor-email">Contact email</label><input id="contributor-email" name="contributor_email" type="email" maxlength="254" autocomplete="email" required>
-            <label for="keyword">Target keyword</label><input id="keyword" name="keyword" maxlength="160" placeholder="Optional">
-            <label for="original-url">Original article URL <span>Optional</span></label><input id="original-url" name="original_url" type="url" maxlength="2000" placeholder="https://example.com/original-article">
-            <label class="acknowledgement"><input type="checkbox" name="canonical_to_original"><span>This same article is already published at that URL; request that search engines treat the original page as canonical.</span></label>
-            <label for="submission-meta-title">SEO title <span>Optional · max 60</span></label><input id="submission-meta-title" name="meta_title" maxlength="60" placeholder="Leave blank to use the article title">
-            <label for="submission-meta-description">Meta description <span>Optional · max 155</span></label><textarea id="submission-meta-description" name="meta_description" maxlength="155" rows="3" placeholder="Short summary for search results"></textarea>
-            <label for="content">Article text or simple HTML</label><textarea id="content" name="content" rows="16" maxlength="100000" placeholder="Paste the article here" required>
-            </textarea>
-            <label class="acknowledgement"><input type="checkbox" name="rights_confirmed" required><span>I own this work or have authority to license it, and grant {{ site_name }} a non-exclusive, royalty-free right to reproduce, format, display, and promote it. I understand submission does not guarantee acceptance, publication, traffic, or rankings. <a href="{{ url_for('editorial_policy_page') }}">Reprint terms</a>.</span></label>
-            <div class="form-note">The original canonical request is only for an identical syndicated article. The editorial team makes the final publishing decision.</div>
-            <button class="button button-primary" type="submit">Send for review <span aria-hidden="true">→</span></button>
-          </form>
-
         {% elif page == 'articles' %}
           <section class="workspace-intro"><p class="eyebrow">DRAFTING / {{ selected_niche }}</p><h2>Turn a search phrase into a reviewable draft.</h2><p>Generate from the Growth Plan with live web research, or start with a specific phrase. Nothing is published without your approval.</p></section>
+          <p><a class="text-link" href="{{ url_for('image_library') }}">Review image sizes and missing alt text <span aria-hidden="true">→</span></a></p>
           <form class="auto-research-panel" method="post" action="{{ url_for('auto_article') }}">{{ csrf_input() }}<div><p class="eyebrow">AUTOMATIC RESEARCH</p><strong>Next uncovered topic from Growth Plan</strong><small>Searches the web, creates an original draft, and saves its sources for review.</small></div><button class="button button-primary" type="submit">Research &amp; write next draft <span aria-hidden="true">→</span></button></form>
           <form class="workspace-panel generator-form" method="post">
             {{ csrf_input() }}
@@ -200,16 +263,54 @@
           <section class="section-header"><div><p class="eyebrow">CONTENT LIBRARY</p><h2>All articles</h2></div><span class="muted-note">{{ articles | length }} total</span></section>
           {% if articles %}<div class="article-table">{% for article in articles %}<a class="article-row" href="{{ url_for('article_detail', article_id=article.id) }}"><span class="article-row-main"><strong>{{ article.meta_title }}</strong><small>{{ article.keyword }} · {{ article.created_at[:10] }}</small></span><span class="status status-{{ article.status | lower | replace(' ', '-') }}">{{ article.status }}</span><span class="row-arrow" aria-hidden="true">↗</span></a>{% endfor %}</div>{% else %}<div class="empty-state compact"><p>No articles yet. Receive a client submission or create a draft.</p></div>{% endif %}
 
+        {% elif page == 'images' %}
+          <section class="workspace-intro"><p class="eyebrow">IMAGE QUALITY / {{ selected_niche }}</p><h2>Make every article image lighter and accessible.</h2><p>Upload a JPG, PNG, or WebP cover from an article editor to resize it and save an optimized WebP. This checklist flags covers that still need custom descriptive alt text.</p></section>
+          <section class="workspace-panel link-check-panel"><div><p class="eyebrow">SITE HEALTH</p><h2>Find broken images and links</h2><p>Checks images and links in published articles and pages. External redirects are reported but never followed; local and private network addresses are not contacted. This report does not change your content.</p></div><form method="post" action="{{ url_for('check_site_links') }}">{{ csrf_input() }}<button class="button button-primary" type="submit">Run image &amp; link check <span aria-hidden="true">→</span></button></form></section>
+          {% if link_check_report %}
+            <section class="link-check-report" aria-live="polite">
+              <header class="section-header"><div><p class="eyebrow">LATEST SCAN</p><h2>{{ link_check_report.issue_count }} item(s) to review</h2></div><span class="muted-note">{{ link_check_report.checked_count }} references checked</span></header>
+              {% if link_check_report.skipped_count %}<p class="form-note">{{ link_check_report.skipped_count }} private or unsupported reference(s) were not checked.</p>{% endif %}
+              {% if link_check_report.truncated %}<p class="form-note">Scan limit reached: only the first 120 image and link references were checked.</p>{% endif %}
+              {% if link_check_report.issues %}
+                <div class="image-audit-list">
+                  {% for item in link_check_report.issues %}
+                    <article class="link-check-row">
+                      <span class="image-audit-status {% if item.status == 'Broken' %}image-audit-missing{% else %}link-check-warning{% endif %}">{{ item.status }}</span>
+                      <div class="image-audit-copy"><strong>{{ item.source }} · {{ item.kind }}</strong><small>{{ item.detail }}</small><a href="{{ item.url }}" target="_blank" rel="noopener noreferrer">{{ item.url }}</a></div>
+                    </article>
+                  {% endfor %}
+                </div>
+              {% else %}<div class="empty-state compact"><p>No broken links, unavailable URLs, or redirects were found in the checked content.</p></div>{% endif %}
+            </section>
+          {% endif %}
+          <div class="image-audit-summary"><strong>{{ missing_alt_count }}</strong><span>of {{ image_articles | length }} article covers need alt text</span></div>
+          {% if image_articles %}
+            <div class="image-audit-list">
+              {% for article in image_articles %}
+                <article class="image-audit-row">
+                  <img src="{{ article.display_cover_image_url }}" alt="" aria-hidden="true" loading="lazy">
+                  <div class="image-audit-copy"><strong>{{ article.article_title }}</strong><small>{{ article.status }} · {{ article.created_at[:10] }}</small></div>
+                  <span class="image-audit-status {% if article.has_cover_image_alt %}image-audit-good{% else %}image-audit-missing{% endif %}">{% if article.has_cover_image_alt %}Custom alt text added{% else %}Custom alt text missing{% endif %}</span>
+                  <a class="text-link" href="{{ url_for('article_detail', article_id=article.id) }}">Edit image <span aria-hidden="true">→</span></a>
+                </article>
+              {% endfor %}
+            </div>
+          {% else %}<div class="empty-state compact"><p>No articles to review yet. Article cover images will appear here.</p></div>{% endif %}
+
         {% elif page == 'article_detail' %}
           <div class="detail-toolbar"><a class="text-link" href="{{ url_for('articles') }}">← All articles</a><span class="status status-{{ article.status | lower | replace(' ', '-') }}">{{ article.status }}</span></div>
           <section class="workspace-panel cover-image-editor">
-            <div><p class="eyebrow">ARTICLE COVER</p><h2>Add an image to this post</h2><p>Paste a direct HTTPS image link. Leave it empty to use the site's automatic topic image. Stock image URLs work too.</p></div>
-            <img src="{{ article.display_cover_image_url }}" alt="Cover image preview for {{ article.article_title }}">
-            <form method="post">
+            <div><p class="eyebrow">ARTICLE COVER</p><h2>Add an image to this post</h2><p>Upload a JPG, PNG, or WebP up to 8 MB to resize it to at most 1800 × 1800 pixels and save it as optimized WebP. Or paste a direct HTTPS image link.</p></div>
+            <img src="{{ article.display_cover_image_url }}" alt="Cover image preview for {{ article.cover_image_alt or article.article_title }}">
+            <form method="post" enctype="multipart/form-data">
               {{ csrf_input() }}
               <input type="hidden" name="action" value="update_cover_image">
+              <label for="cover-image-file">Upload and optimize image</label>
+              <input id="cover-image-file" name="cover_image" type="file" accept="image/jpeg,image/png,image/webp">
               <label for="cover-image-url">Cover image URL</label>
               <input id="cover-image-url" name="cover_image_url" type="url" maxlength="2000" value="{{ article.cover_image_url or '' }}" placeholder="https://images.unsplash.com/photo-...">
+              <label for="cover-image-alt">Descriptive alt text <span>Required for the image audit · up to 200 characters</span></label>
+              <input id="cover-image-alt" name="cover_image_alt" type="text" maxlength="200" value="{{ article.cover_image_alt or '' }}" placeholder="Describe the useful visual details">
               <button class="button button-outline" type="submit">Save cover image</button>
             </form>
           </section>
@@ -226,9 +327,18 @@
               <button class="button button-outline" type="submit">Save SEO details</button>
             </form>
           {% endif %}
-          <section class="seo-checklist" aria-label="On-page checks"><div><p class="eyebrow">BASIC PAGE CHECKS</p><h2>Review checklist</h2></div><ul><li><span class="check-state {% if seo_checks.title_ok %}check-good{% endif %}">{% if seo_checks.title_ok %}OK{% else %}CHECK{% endif %}</span> SEO title is {{ article.meta_title | length }} of 60 characters</li><li><span class="check-state {% if seo_checks.description_ok %}check-good{% endif %}">{% if seo_checks.description_ok %}OK{% else %}CHECK{% endif %}</span> Meta description is {{ article.meta_description | length }} of 155 characters</li><li><span class="check-state {% if seo_checks.keyword_set %}check-good{% endif %}">{% if seo_checks.keyword_set %}OK{% else %}ADD{% endif %}</span> {% if seo_checks.keyword_set %}Focus keyword is set{% else %}Add a focus keyword to check placement{% endif %}</li><li><span class="check-state {% if seo_checks.keyword_in_title %}check-good{% endif %}">{% if seo_checks.keyword_in_title %}OK{% else %}CHECK{% endif %}</span> Focus keyword appears in the SEO title</li><li><span class="check-state {% if seo_checks.keyword_in_intro %}check-good{% endif %}">{% if seo_checks.keyword_in_intro %}OK{% else %}CHECK{% endif %}</span> Focus keyword appears in the first 100 body words</li></ul><p class="form-note">These are basic on-page checks, not a Google ranking score. Article body: {{ seo_checks.word_count }} words.</p></section>
-          <article class="article-preview"><p class="eyebrow">{{ article.niche }} · {{ article.created_at[:10] }}</p><h2>{{ article.article_title }}</h2><div class="metadata-grid"><div><span>SEO TITLE</span><strong>{{ article.meta_title }}</strong><small>{{ article.meta_title | length }} / 60 characters</small></div><div><span>META DESCRIPTION</span><strong>{{ article.meta_description }}</strong><small>{{ article.meta_description | length }} / 155 characters</small></div></div>{% if article.contributor_email %}<p class="form-note">Contributor: {{ article.author }} · {{ article.contributor_email }} · permission recorded {{ article.reprint_permission_at }} ({{ article.reprint_terms_version }})</p>{% endif %}{% if article.original_url %}<p class="form-note">Original URL: <a href="{{ article.original_url }}" target="_blank" rel="noopener noreferrer">{{ article.original_url }}</a> · {% if article.canonical_to_original %}requests original canonical{% else %}site canonical requested{% endif %}</p>{% endif %}<div class="article-content">{{ article.article_html | safe }}</div></article>
-          {% if article.sources %}<section class="source-list"><p class="eyebrow">WEB RESEARCH · {{ article.research_date or 'date not recorded' }}</p><h2>Sources used for this draft</h2><ul>{% for source in article.sources %}<li><a href="{{ source.url }}" target="_blank" rel="noopener noreferrer">{{ source.title }}</a>{% if source.published_date %}<small> · {{ source.published_date }}</small>{% endif %}</li>{% endfor %}</ul><p class="form-note">Sources are reference material; the draft is original paraphrased copy. Check the sources and facts before publishing.</p></section>{% endif %}
+          <section class="seo-checklist" aria-label="On-page and editorial checks"><div><p class="eyebrow">ON-PAGE &amp; EDITORIAL CHECKS</p><h2>Review checklist</h2></div><ul>
+            <li><span class="check-state {% if seo_checks.title_ok %}check-good{% endif %}">{% if seo_checks.title_ok %}OK{% else %}CHECK{% endif %}</span> SEO title is {{ article.meta_title | length }} of 60 characters</li>
+            <li><span class="check-state {% if seo_checks.description_ok %}check-good{% endif %}">{% if seo_checks.description_ok %}OK{% else %}CHECK{% endif %}</span> Meta description is {{ article.meta_description | length }} of 155 characters</li>
+            <li><span class="check-state {% if seo_checks.keyword_set %}check-good{% endif %}">{% if seo_checks.keyword_set %}OK{% else %}ADD{% endif %}</span> {% if seo_checks.keyword_set %}Focus keyword is set{% else %}Add a focus keyword to check placement{% endif %}</li>
+            <li><span class="check-state {% if seo_checks.keyword_in_title %}check-good{% endif %}">{% if seo_checks.keyword_in_title %}OK{% else %}CHECK{% endif %}</span> Focus keyword appears in the SEO title</li>
+            <li><span class="check-state {% if seo_checks.keyword_in_intro %}check-good{% endif %}">{% if seo_checks.keyword_in_intro %}OK{% else %}CHECK{% endif %}</span> Focus keyword appears in the first 100 body words</li>
+            <li><span class="check-state {% if seo_checks.headings_ok %}check-good{% endif %}">{% if seo_checks.headings_ok %}OK{% else %}CHECK{% endif %}</span> Article has at least 3 non-empty H2 sections ({{ seo_checks.heading_count }} found)</li>
+            <li><span class="check-state {% if seo_checks.paragraphs_ok %}check-good{% endif %}">{% if seo_checks.paragraphs_ok %}OK{% else %}CHECK{% endif %}</span> Paragraphs are split into readable sections ({{ seo_checks.paragraph_count }} found)</li>
+            <li><span class="check-state {% if seo_checks.sources_available %}check-good{% endif %}">{% if seo_checks.sources_available %}REVIEW{% else %}NEEDED{% endif %}</span> {% if seo_checks.sources_available %}{{ seo_checks.source_count }} reference source(s) saved{% else %}No reference sources saved; verify factual claims manually{% endif %}</li>
+          </ul><p class="form-note">Automated checks inspect structure and metadata only. They do not verify factual accuracy, plagiarism, rankings, or source reliability. Read the article and check every factual claim against trustworthy references before publishing. Article body: {{ seo_checks.word_count }} words.</p></section>
+          <article class="article-preview"><p class="eyebrow">{{ article.niche }} · {{ article.created_at[:10] }}</p><h2>{{ article.article_title }}</h2><div class="metadata-grid"><div><span>SEO TITLE</span><strong>{{ article.meta_title }}</strong><small>{{ article.meta_title | length }} / 60 characters</small></div><div><span>META DESCRIPTION</span><strong>{{ article.meta_description }}</strong><small>{{ article.meta_description | length }} / 155 characters</small></div></div>{% if article.contributor_email %}<p class="form-note">Contributor: {{ article.author }} · {{ article.contributor_email }} · permission recorded {{ article.reprint_permission_at }} ({{ article.reprint_terms_version }})</p>{% endif %}{% if article.client_website_url %}<p class="form-note">Client backlink: <a href="{{ article.client_website_url }}" target="_blank" rel="sponsored nofollow noopener noreferrer">{{ article.client_website_url }}</a></p>{% endif %}{% if article.original_url %}<p class="form-note">Original URL: <a href="{{ article.original_url }}" target="_blank" rel="noopener noreferrer">{{ article.original_url }}</a> · {% if article.canonical_to_original %}requests original canonical{% else %}site canonical requested{% endif %}</p>{% endif %}<div class="article-content">{{ article.article_html | safe }}</div></article>
+          {% if article.sources %}<section class="source-list"><p class="eyebrow">WEB RESEARCH · {{ article.research_date or 'date not recorded' }}</p><h2>Sources used for this draft</h2><ul>{% for source in article.sources %}<li><a href="{{ source.url }}" target="_blank" rel="noopener noreferrer">{{ source.title }}</a>{% if source.published_date %}<small> · {{ source.published_date }}</small>{% endif %}</li>{% endfor %}</ul><p class="form-note">Sources are research leads, not proof that every statement is correct. Open and check them before publication.</p></section>{% endif %}
           <div class="publish-bar">{% if article.published_url %}<a class="button button-outline" href="{{ article.published_url }}" target="_blank" rel="noopener">View live article <span aria-hidden="true">↗</span></a>{% elif article.status == 'Published' and article.slug %}<a class="button button-outline" href="{{ url_for('public_article', slug=article.slug) }}">View live article <span aria-hidden="true">↗</span></a>{% elif article.status in ['Draft', 'Pending Review'] %}<span>Review this article before it appears on the public blog.</span><form method="post" action="{{ url_for('publish', article_id=article.id) }}">{{ csrf_input() }}<button class="button button-primary" type="submit">Approve &amp; publish <span aria-hidden="true">↗</span></button></form>{% endif %}</div>
         {% endif %}
       </main>

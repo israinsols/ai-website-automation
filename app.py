@@ -1,27 +1,40 @@
 import html
 import hashlib
 import hmac
+import http.client
+import ipaddress
 import json
+import calendar as month_calendar
 import os
 import re
 import requests
 import secrets
 import sqlite3
+import smtplib
+import socket
+import ssl
 import tempfile
 from datetime import datetime, timedelta
-from email.utils import format_datetime
+from email.message import EmailMessage
+from email.utils import format_datetime, formataddr
+from html.parser import HTMLParser
 from io import BytesIO
 from pathlib import Path
-from urllib.parse import urlparse
+from concurrent.futures import ThreadPoolExecutor
+from urllib.parse import urljoin, urlparse
 import uuid
 import xml.etree.ElementTree as ET
 
 from dotenv import dotenv_values, load_dotenv
 from flask import Flask, Response, abort, flash, redirect, render_template, request, send_file, session, url_for
 from groq import Groq
+from itsdangerous import BadSignature, URLSafeSerializer
+from PIL import Image, ImageOps, UnidentifiedImageError
 from werkzeug.security import check_password_hash, generate_password_hash
+from werkzeug.exceptions import HTTPException
 
 import main as engine
+import search_console as search_console_integration
 
 
 ROOT = Path(__file__).resolve().parent
@@ -44,15 +57,20 @@ if APP_ENV == "production":
         raise RuntimeError("Production requires ADMIN_USERNAME and an ADMIN_PASSWORD of at least 16 characters.")
 app.secret_key = FLASK_SECRET_KEY or secrets.token_hex(32)
 app.config.update(
-    MAX_CONTENT_LENGTH=120 * 1024,
+    MAX_CONTENT_LENGTH=9 * 1024 * 1024,
     SESSION_COOKIE_HTTPONLY=True,
     SESSION_COOKIE_SAMESITE="Lax",
     SESSION_COOKIE_SECURE=APP_ENV == "production",
 )
 ADMIN_PASSWORD_HASH = generate_password_hash(ADMIN_PASSWORD) if ADMIN_PASSWORD else ""
-ADMIN_ENDPOINTS = {"setup", "dashboard", "strategy", "calendar", "autopilot_settings", "keywords", "articles", "article_detail", "publish", "auto_article", "admin_backup", "traffic_report", "site_manager", "manage_pages", "edit_site_page", "delete_site_page", "newsletter_settings", "remove_newsletter_subscriber"}
-PUBLIC_SUBMISSIONS_ENABLED = os.getenv("ALLOW_PUBLIC_SUBMISSIONS", "0").strip() == "1"
+ADMIN_ENDPOINTS = {"setup", "dashboard", "strategy", "calendar", "autopilot_settings", "keywords", "articles", "article_detail", "publish", "auto_article", "admin_backup", "traffic_report", "search_console_report", "sync_search_console_report", "site_manager", "manage_pages", "edit_site_page", "delete_site_page", "newsletter_settings", "remove_newsletter_subscriber", "site_overview", "image_library", "check_site_links"}
+MAX_IMAGE_UPLOAD_BYTES = 8 * 1024 * 1024
+MAX_IMAGE_DIMENSION = 1800
+MAX_IMAGE_PIXELS = 40_000_000
+MAX_LINK_CHECK_REFERENCES = 120
 REPRINT_TERMS_VERSION = "v1-2026-09"
+CLIENT_DAILY_GENERATION_LIMIT = 3
+app.config["CLIENT_DAILY_GENERATION_LIMIT"] = CLIENT_DAILY_GENERATION_LIMIT
 SITE_NAME = os.getenv("SITE_NAME", "Urban Nest Interiors").strip() or "Urban Nest Interiors"
 SITE_DESCRIPTION = os.getenv(
     "SITE_DESCRIPTION", "Practical ideas and thoughtful guides for better home interiors."
@@ -70,7 +88,7 @@ DEFAULT_SITE_SETTINGS = {
     "hero_image_url": "",
     "theme_primary": "#d96d41",
     "theme_background": "#f7f4f1",
-    "newsletter_enabled": False,
+    "newsletter_enabled": True,
     "newsletter_title": "Get useful ideas in your inbox",
     "newsletter_description": "A short email when we publish something new.",
     "navigation": [
@@ -78,6 +96,7 @@ DEFAULT_SITE_SETTINGS = {
         {"label": "Topics", "url": "/#topics"},
         {"label": "Plans", "url": "/#plans"},
         {"label": "Blogs", "url": "/blog"},
+        {"label": "Submit Article", "url": "/submit"},
         {"label": "About", "url": "/about"},
         {"label": "Contact", "url": "/contact"},
     ],
@@ -88,12 +107,16 @@ DEFAULT_ARTICLE_COVERS = {
         "https://images.unsplash.com/photo-1600210492486-724fe5c67fb0?auto=format&fit=crop&w=1100&q=82",
         "https://images.unsplash.com/photo-1618221195710-dd6b41faaea6?auto=format&fit=crop&w=1100&q=82",
         "https://images.unsplash.com/photo-1616486029423-aaa4789e8c9a?auto=format&fit=crop&w=1100&q=82",
+        "https://images.unsplash.com/photo-1600607687939-ce8a6c25118c?auto=format&fit=crop&w=1100&q=82",
+        "https://images.unsplash.com/photo-1600607687920-4e2a09cf159d?auto=format&fit=crop&w=1100&q=82",
     ],
     "tech": [
         "https://images.unsplash.com/photo-1498050108023-c5249f4df085?auto=format&fit=crop&w=1400&q=82",
         "https://images.unsplash.com/photo-1518770660439-4636190af475?auto=format&fit=crop&w=1100&q=82",
         "https://images.unsplash.com/photo-1516321318423-f06f85e504b3?auto=format&fit=crop&w=1100&q=82",
         "https://images.unsplash.com/photo-1519389950473-47ba0277781c?auto=format&fit=crop&w=1100&q=82",
+        "https://images.unsplash.com/photo-1531297484001-80022131f5a1?auto=format&fit=crop&w=1100&q=82",
+        "https://images.unsplash.com/photo-1485827404703-89b55fcc595e?auto=format&fit=crop&w=1100&q=82",
     ],
 }
 SITE_SHOWCASE_COPY = {
@@ -101,11 +124,15 @@ SITE_SHOWCASE_COPY = {
         ("LIVING SPACES", "Rooms made for slowing down"),
         ("NATURAL MATERIALS", "The quiet beauty of natural textures"),
         ("SMALL-SPACE IDEAS", "Thoughtful design for smaller spaces"),
+        ("CALM CORNERS", "Comfortable details for everyday rituals"),
+        ("ROOM TO GROW", "Fresh inspiration for a home that evolves"),
     ],
     "tech": [
         ("MODERN WORK", "A smarter setup for focused work"),
         ("CONNECTED LIVING", "Technology that fits everyday life"),
         ("DIGITAL TOOLS", "Tools that help you do your best work"),
+        ("NEW PERSPECTIVES", "A closer look at the ideas shaping tomorrow"),
+        ("THOUGHTFUL TECH", "Useful tools, chosen with purpose"),
     ],
 }
 
@@ -126,10 +153,313 @@ def is_safe_image_url(value):
     return is_safe_external_url(value) and urlparse(value.strip()).scheme.casefold() == "https"
 
 
+def is_safe_local_image_url(value):
+    profile, _ = local_image_storage()
+    return isinstance(value, str) and re.fullmatch(
+        rf"/static/uploads/{re.escape(profile)}/[0-9a-f]{{32}}\.webp", value
+    ) is not None
+
+
+def is_safe_article_image_url(value):
+    return is_safe_image_url(value) or is_safe_local_image_url(value)
+
+
+class ArticleLinkParser(HTMLParser):
+    def __init__(self):
+        super().__init__(convert_charrefs=True)
+        self.references = []
+
+    def handle_starttag(self, tag, attrs):
+        attribute = {"img": "src", "a": "href"}.get(tag.casefold())
+        if attribute:
+            value = dict(attrs).get(attribute)
+            if isinstance(value, str) and value.strip():
+                self.references.append(("image" if tag.casefold() == "img" else "link", value.strip()))
+
+    def handle_startendtag(self, tag, attrs):
+        self.handle_starttag(tag, attrs)
+
+
+def _public_address_for_host(host, port):
+    if not host or host.casefold().rstrip(".") in {"localhost", "metadata.google.internal"}:
+        raise ValueError("Private and local hosts are not checked.")
+    try:
+        literal_ip = ipaddress.ip_address(host)
+    except ValueError:
+        literal_ip = None
+    if literal_ip is not None:
+        if not literal_ip.is_global:
+            raise ValueError("Private and local hosts are not checked.")
+        return str(literal_ip)
+
+    try:
+        addresses = socket.getaddrinfo(host, port, type=socket.SOCK_STREAM)
+    except OSError as exc:
+        raise ValueError("Host name could not be resolved.") from exc
+    public_addresses = []
+    for address in addresses:
+        candidate = address[4][0]
+        try:
+            parsed_address = ipaddress.ip_address(candidate)
+        except ValueError as exc:
+            raise ValueError("Host returned an invalid network address.") from exc
+        if not parsed_address.is_global:
+            raise ValueError("Private and local hosts are not checked.")
+        if candidate not in public_addresses:
+            public_addresses.append(candidate)
+    if not public_addresses:
+        raise ValueError("Host name did not resolve to a public address.")
+    return public_addresses[0]
+
+
+class _PinnedHTTPConnection(http.client.HTTPConnection):
+    def __init__(self, host, port, address, timeout):
+        super().__init__(host, port, timeout=timeout)
+        self.address = address
+
+    def connect(self):
+        self.sock = socket.create_connection((self.address, self.port), self.timeout)
+
+
+class _PinnedHTTPSConnection(http.client.HTTPSConnection):
+    def __init__(self, host, port, address, timeout):
+        super().__init__(host, port, timeout=timeout, context=ssl.create_default_context())
+        self.address = address
+
+    def connect(self):
+        raw_socket = socket.create_connection((self.address, self.port), self.timeout)
+        try:
+            self.sock = self._context.wrap_socket(raw_socket, server_hostname=self.host)
+        except Exception:
+            raw_socket.close()
+            raise
+
+
+def probe_public_url(value):
+    if not is_safe_external_url(value) or len(value) > 2048:
+        return {"status": "Skipped", "detail": "Not a valid HTTP or HTTPS URL."}
+    parsed = urlparse(value)
+    if parsed.username or parsed.password:
+        return {"status": "Skipped", "detail": "URLs containing credentials are not checked."}
+    try:
+        port = parsed.port or (443 if parsed.scheme.casefold() == "https" else 80)
+        address = _public_address_for_host(parsed.hostname, port)
+        connection_type = _PinnedHTTPSConnection if parsed.scheme.casefold() == "https" else _PinnedHTTPConnection
+        connection = connection_type(parsed.hostname, port, address, timeout=4)
+        path = parsed.path or "/"
+        if parsed.query:
+            path = f"{path}?{parsed.query}"
+        try:
+            connection.request(
+                "GET",
+                path,
+                headers={
+                    "Range": "bytes=0-0",
+                    "User-Agent": "LocalWebsiteLinkChecker/1.0",
+                    "Accept": "*/*",
+                    "Connection": "close",
+                },
+            )
+            response = connection.getresponse()
+            status = response.status
+        finally:
+            connection.close()
+        if 200 <= status < 300:
+            return {"status": "OK", "detail": f"HTTP {status}"}
+        if 300 <= status < 400:
+            return {"status": "Redirect", "detail": f"HTTP {status}; redirect was not followed"}
+        if status >= 500:
+            return {"status": "Unavailable", "detail": f"HTTP {status}"}
+        return {"status": "Broken", "detail": f"HTTP {status}"}
+    except ValueError as exc:
+        return {"status": "Skipped", "detail": str(exc)[:180] or "URL was not checked."}
+    except (OSError, http.client.HTTPException, ssl.SSLError) as exc:
+        return {"status": "Unavailable", "detail": str(exc)[:180] or "Connection failed."}
+
+
+def _local_link_result(path, published_slugs, published_page_slugs):
+    if path.startswith("/static/"):
+        relative_path = path[len("/static/"):]
+        target = (ROOT / "static" / relative_path).resolve()
+        static_root = (ROOT / "static").resolve()
+        exists = target.is_relative_to(static_root) and target.is_file()
+        return {"status": "OK" if exists else "Broken", "detail": "Local file exists" if exists else "Local file not found"}
+    try:
+        endpoint, values = app.url_map.bind("link-check.local").match(path, method="GET")
+    except HTTPException as exc:
+        return {"status": "Broken", "detail": f"Local route returns HTTP {exc.code}"}
+    if endpoint == "public_article" and values.get("slug") not in published_slugs:
+        return {"status": "Broken", "detail": "Published article was not found"}
+    if endpoint == "public_site_page" and values.get("slug") not in published_page_slugs:
+        return {"status": "Broken", "detail": "Published page was not found"}
+    return {"status": "OK", "detail": "Local route exists"}
+
+
+def run_site_link_check(request_host, request_scheme):
+    published_articles = [
+        item for item in articles_for_site_profile()
+        if item.get("status") == "Published" and item.get("slug")
+    ]
+    published_pages = list_site_pages()
+    published_slugs = {item["slug"] for item in published_articles}
+    published_page_slugs = {item["slug"] for item in published_pages}
+    references = []
+
+    for index, article in enumerate(published_articles):
+        title = str(article.get("article_title") or article.get("slug") or "Published article")[:180]
+        base_path = f"/blog/{article['slug']}"
+        cover_url = article_cover_image(article, index)
+        references.append({
+            "source": title,
+            "kind": "Cover image",
+            "url": cover_url,
+            "base_path": base_path,
+        })
+        parser = ArticleLinkParser()
+        parser.feed(str(article.get("article_html") or ""))
+        references.extend({
+            "source": title,
+            "kind": "Image" if kind == "image" else "Article link",
+            "url": value,
+            "base_path": base_path,
+        } for kind, value in parser.references)
+
+    for page in published_pages:
+        title = str(page.get("title") or page.get("slug") or "Published page")[:180]
+        base_path = f"/pages/{page['slug']}"
+        parser = ArticleLinkParser()
+        parser.feed(str(page.get("content") or ""))
+        references.extend({
+            "source": title,
+            "kind": "Image" if kind == "image" else "Page link",
+            "url": value,
+            "base_path": base_path,
+        } for kind, value in parser.references)
+
+    settings = load_site_settings()
+    homepage_covers = DEFAULT_ARTICLE_COVERS.get(
+        current_niche(), DEFAULT_ARTICLE_COVERS["home-decor"]
+    )
+    references.append({
+        "source": "Homepage",
+        "kind": "Hero image",
+        "url": settings.get("hero_image_url") or homepage_covers[0],
+        "base_path": "/",
+    })
+
+    local_hosts = {request_host.casefold()}
+    configured_site_url = urlparse(os.getenv("PUBLIC_SITE_URL", "").strip())
+    if configured_site_url.hostname:
+        configured_host = configured_site_url.hostname.casefold()
+        configured_port = configured_site_url.port
+        local_hosts.add(
+            f"{configured_host}:{configured_port}" if configured_port else configured_host
+        )
+        local_hosts.add(configured_host)
+
+    candidates = []
+    seen_references = set()
+    truncated = len(references) > MAX_LINK_CHECK_REFERENCES
+    for reference in references[:MAX_LINK_CHECK_REFERENCES]:
+        raw_url = reference["url"].strip()
+        if not raw_url or raw_url.startswith("#"):
+            continue
+        if raw_url.casefold().startswith(("mailto:", "tel:", "data:")):
+            continue
+        base_url = f"{request_scheme}://{request_host}{reference['base_path']}"
+        target_url = urljoin(base_url, raw_url)
+        parsed = urlparse(target_url)
+        if parsed.scheme.casefold() not in {"http", "https"} or not parsed.hostname:
+            continue
+        authority = parsed.netloc.casefold()
+        hostname = parsed.hostname.casefold()
+        if authority in local_hosts or hostname in local_hosts:
+            path = parsed.path or "/"
+            if not path.startswith("/"):
+                path = f"/{path}"
+            key = (reference["source"], reference["kind"], path)
+            result = _local_link_result(path, published_slugs, published_page_slugs)
+            candidate = {**reference, "url": target_url, **result}
+        else:
+            key = (reference["source"], reference["kind"], target_url)
+            candidate = {**reference, "url": target_url}
+        if key in seen_references:
+            continue
+        seen_references.add(key)
+        candidates.append(candidate)
+
+    external_urls = list(dict.fromkeys(
+        item["url"] for item in candidates if "status" not in item
+    ))
+    with ThreadPoolExecutor(max_workers=8) as executor:
+        probe_results = list(executor.map(probe_public_url, external_urls))
+    external_results = dict(zip(external_urls, probe_results))
+
+    results = []
+    for item in candidates:
+        result = dict(item)
+        if "status" not in result:
+            result.update(external_results[result["url"]])
+        results.append(result)
+
+    issues = [item for item in results if item["status"] not in {"OK", "Skipped"}]
+    issues.sort(key=lambda item: (
+        {"Broken": 0, "Unavailable": 1, "Redirect": 2}.get(item["status"], 3),
+        item["source"].casefold(),
+    ))
+    return {
+        "checked_count": len(results),
+        "issue_count": len(issues),
+        "issues": issues,
+        "truncated": truncated,
+        "skipped_count": sum(item["status"] == "Skipped" for item in results),
+    }
+
+
+def local_image_storage():
+    profile = re.sub(r"[^a-z0-9-]", "-", DATABASE_PATH.stem.casefold()).strip("-")[:60] or "site"
+    return profile, ROOT / "static" / "uploads" / profile
+
+
+def optimize_uploaded_image(upload):
+    payload = upload.read(MAX_IMAGE_UPLOAD_BYTES + 1)
+    if not payload:
+        raise ValueError("Choose a non-empty JPG, PNG, or WebP image to upload.")
+    if len(payload) > MAX_IMAGE_UPLOAD_BYTES:
+        raise ValueError("Choose an image smaller than 8 MB.")
+    try:
+        with Image.open(BytesIO(payload)) as source:
+            if source.format not in {"JPEG", "PNG", "WEBP"}:
+                raise ValueError("Use a JPG, PNG, or WebP image.")
+            if source.width * source.height > MAX_IMAGE_PIXELS:
+                raise ValueError("Choose an image with dimensions under 40 megapixels.")
+            source.verify()
+        with Image.open(BytesIO(payload)) as source:
+            optimized = ImageOps.exif_transpose(source)
+            optimized.thumbnail(
+                (MAX_IMAGE_DIMENSION, MAX_IMAGE_DIMENSION),
+                Image.Resampling.LANCZOS,
+            )
+            if optimized.mode not in {"RGB", "RGBA"}:
+                optimized = optimized.convert(
+                    "RGBA" if "transparency" in optimized.info else "RGB"
+                )
+            output = BytesIO()
+            optimized.save(output, format="WEBP", quality=82, method=6)
+    except (UnidentifiedImageError, OSError, Image.DecompressionBombError) as exc:
+        raise ValueError("That image could not be read. Choose a valid JPG, PNG, or WebP image.") from exc
+
+    profile, directory = local_image_storage()
+    directory.mkdir(parents=True, exist_ok=True)
+    filename = f"{uuid.uuid4().hex}.webp"
+    (directory / filename).write_bytes(output.getvalue())
+    return f"/static/uploads/{profile}/{filename}", len(payload), output.tell()
+
+
 def article_cover_image(article, index=0):
     image_value = article.get("cover_image_url", "")
     image_url = image_value.strip() if isinstance(image_value, str) else ""
-    if is_safe_image_url(image_url):
+    if is_safe_article_image_url(image_url):
         return image_url
     niche = (article.get("niche") or load_site_settings()["category"]).casefold()
     covers = DEFAULT_ARTICLE_COVERS["tech" if "tech" in niche else "home-decor"]
@@ -368,6 +698,9 @@ def topic_cluster_for_keyword(niche, keyword):
         term_values = [normalize_topic_text(term) for term in terms if term]
         if normalized in term_values:
             return cluster["name"]
+    for cluster in TOPIC_CLUSTER_RULES.get(niche, []):
+        terms = cluster["keywords"] + cluster.get("aliases", []) + [cluster.get("pillar", "")]
+        term_values = [normalize_topic_text(term) for term in terms if term]
         if any(term and term in normalized for term in term_values if term):
             return cluster["name"]
         token_overlap = set(normalized.split()) & set(
@@ -438,10 +771,24 @@ def build_topic_clusters(niche, articles, extra_keywords=None):
 
 def related_articles(article, articles, limit=3):
     niche = article.get("niche", "")
-    cluster = article.get("topic_cluster") or topic_cluster_for_keyword(niche, article.get("keyword", ""))
-    source_terms = set(normalize_topic_text(
-        f"{article.get('keyword', '')} {article.get('article_title', '')}"
-    ).split())
+    cluster = topic_cluster_for_keyword(niche, article.get("keyword", "")) or article.get("topic_cluster")
+    stop_words = {
+        "a", "about", "after", "all", "and", "are", "as", "at", "best", "by", "for",
+        "from", "guide", "how", "in", "ideas", "into", "is", "it", "of", "on", "or",
+        "our", "the", "their", "this", "tips", "to", "top", "with", "your",
+        "article", "articles", "discover", "explore", "fresh", "modern", "practical",
+    }
+
+    def terms(*values):
+        return {
+            term for value in values
+            for term in normalize_topic_text(value or "").split()
+            if term not in stop_words
+        }
+
+    source_keyword_terms = terms(article.get("keyword", ""))
+    source_title_terms = terms(article.get("article_title", ""))
+    source_description_terms = terms(article.get("meta_description", ""))
     candidates = []
     for candidate in articles:
         if (candidate.get("id") == article.get("id")
@@ -450,16 +797,77 @@ def related_articles(article, articles, limit=3):
             continue
         if candidate.get("niche") != niche:
             continue
-        candidate_cluster = candidate.get("topic_cluster") or topic_cluster_for_keyword(niche, candidate.get("keyword", ""))
-        if cluster and candidate_cluster != cluster:
+        candidate_cluster = topic_cluster_for_keyword(niche, candidate.get("keyword", "")) or candidate.get("topic_cluster")
+        shared_keyword_terms = source_keyword_terms & terms(candidate.get("keyword", ""))
+        shared_title_terms = source_title_terms & terms(candidate.get("article_title", ""))
+        shared_description_terms = source_description_terms & terms(candidate.get("meta_description", ""))
+        same_cluster = bool(cluster and candidate_cluster == cluster)
+        if not same_cluster and not (shared_keyword_terms or shared_title_terms):
             continue
-        candidate_terms = set(normalize_topic_text(
-            f"{candidate.get('keyword', '')} {candidate.get('article_title', '')}"
-        ).split())
-        relevance = len(source_terms & candidate_terms)
-        candidates.append((relevance, candidate.get("published_at") or candidate.get("created_at", ""), candidate))
+        relevance = (
+            len(shared_keyword_terms) * 5
+            + len(shared_title_terms) * 2
+            + len(shared_description_terms)
+            + (3 if same_cluster else 0)
+        )
+        matched_terms = shared_keyword_terms | shared_title_terms
+        related_terms = list(dict.fromkeys(
+            term for term in normalize_topic_text(
+                f"{article.get('keyword', '')} {article.get('article_title', '')}"
+            ).split()
+            if term in matched_terms
+        ))[:4]
+        if same_cluster:
+            reason = f"Same topic: {candidate_cluster}"
+        elif related_terms:
+            reason = f"Related topics: {', '.join(related_terms)}"
+        else:
+            reason = "More from this journal"
+        candidate["related_reason"] = reason
+        candidates.append((
+            relevance,
+            candidate.get("published_at") or candidate.get("created_at", ""),
+            candidate,
+        ))
     candidates.sort(key=lambda item: (item[0], item[1]), reverse=True)
-    return [item[2] for item in candidates[:limit]]
+    return [item[2] for item in candidates[:max(0, limit)]]
+
+
+def article_reading_minutes(article):
+    article_html = article.get("article_html", "")
+    text = engine.article_text(article_html if isinstance(article_html, str) else "")
+    word_count = len(re.findall(r"\b[\w’'-]+\b", text, flags=re.UNICODE))
+    return max(1, (word_count + 199) // 200)
+
+
+def most_read_articles(articles, limit=3):
+    connection = sqlite3.connect(DATABASE_PATH, timeout=10)
+    try:
+        rows = connection.execute(
+            "SELECT page_key, SUM(view_count) FROM page_view_daily "
+            "WHERE page_key LIKE '/blog/%' GROUP BY page_key"
+        ).fetchall()
+    finally:
+        connection.close()
+
+    view_counts = dict(rows)
+    ranked = []
+    for article in articles:
+        slug = article.get("slug")
+        if article.get("status") != "Published" or not slug:
+            continue
+        view_count = view_counts.get(f"/blog/{slug[:200]}", 0)
+        if view_count:
+            article["view_count"] = view_count
+            ranked.append(article)
+    ranked.sort(
+        key=lambda article: (
+            article["view_count"],
+            article.get("published_at") or article.get("created_at", ""),
+        ),
+        reverse=True,
+    )
+    return ranked[:limit]
 
 
 def is_safe_external_url(value):
@@ -811,6 +1219,159 @@ def finish_autopilot_run(now, published=False):
         connection.close()
 
 
+def clear_scheduled_publication(article):
+    article.pop("scheduled_publish_at", None)
+    article.pop("scheduled_publish_approved", None)
+    article.pop("scheduled_publish_approved_by", None)
+
+
+def publish_article_record(article, records, published_by, published_at=None):
+    article["topic_cluster"] = topic_cluster_for_keyword(
+        article.get("niche", ""), article.get("keyword", "")
+    ) or article.get("topic_cluster")
+    other_articles = [item for item in records if item.get("id") != article.get("id")]
+    article["slug"] = article_slug(article.get("article_title", "article"), other_articles)
+    publish_time = published_at or datetime.now().astimezone()
+    if publish_time.tzinfo is None:
+        publish_time = publish_time.astimezone()
+    article["status"] = "Published"
+    article["published_at"] = publish_time.isoformat(timespec="minutes")
+    article["editorial_reviewed_at"] = article["published_at"]
+    article["editorial_reviewed_by"] = published_by
+    clear_scheduled_publication(article)
+    save_article(article)
+    sent, failed = send_published_article_newsletter(article)
+    return sent, failed
+
+
+def publish_client_article_record(article, records, published_at=None):
+    article["topic_cluster"] = topic_cluster_for_keyword(
+        article.get("niche", ""), article.get("keyword", "")
+    ) or article.get("topic_cluster")
+    other_articles = [item for item in records if item.get("id") != article.get("id")]
+    article["slug"] = article_slug(article.get("article_title", "article"), other_articles)
+    publish_time = published_at or datetime.now().astimezone()
+    if publish_time.tzinfo is None:
+        publish_time = publish_time.astimezone()
+    article["status"] = "Published"
+    article["published_at"] = publish_time.isoformat(timespec="minutes")
+    article["source"] = "Client account auto-published"
+    article.pop("editorial_reviewed_at", None)
+    article.pop("editorial_reviewed_by", None)
+    clear_scheduled_publication(article)
+    save_article(article)
+    sent, failed = send_published_article_newsletter(article)
+    return sent, failed
+
+
+def reserve_scheduled_publication_run(now):
+    connection = sqlite3.connect(DATABASE_PATH, timeout=10)
+    try:
+        with connection:
+            lock = connection.execute(
+                "SELECT value FROM app_meta WHERE key = 'scheduled_publication_run_lock'"
+            ).fetchone()
+            if lock:
+                try:
+                    lock_time = datetime.fromisoformat(lock[0])
+                    if lock_time.tzinfo is None:
+                        lock_time = lock_time.astimezone()
+                    if (now - lock_time).total_seconds() < 7200:
+                        return False
+                except ValueError:
+                    pass
+            connection.execute(
+                "INSERT INTO app_meta (key, value) VALUES ('scheduled_publication_run_lock', ?) "
+                "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+                (now.isoformat(),),
+            )
+            return True
+    finally:
+        connection.close()
+
+
+def finish_scheduled_publication_run():
+    connection = sqlite3.connect(DATABASE_PATH, timeout=10)
+    try:
+        with connection:
+            connection.execute(
+                "DELETE FROM app_meta WHERE key = 'scheduled_publication_run_lock'"
+            )
+    finally:
+        connection.close()
+
+
+def run_due_scheduled_publications(now=None):
+    current_time = now or datetime.now().astimezone()
+    if current_time.tzinfo is None:
+        current_time = current_time.astimezone()
+    if not reserve_scheduled_publication_run(current_time):
+        return {"status": "already-running", "published": 0, "failed": 0}
+    published_count = 0
+    failed_count = 0
+    try:
+        records = load_articles()
+        for article in records:
+            if (article.get("status") not in {"Draft", "Pending Review"}
+                    or article.get("scheduled_publish_approved") is not True):
+                continue
+            scheduled_value = article.get("scheduled_publish_at")
+            if not isinstance(scheduled_value, str) or not scheduled_value:
+                continue
+            try:
+                scheduled_time = datetime.fromisoformat(scheduled_value)
+                if scheduled_time.tzinfo is None:
+                    scheduled_time = scheduled_time.astimezone()
+            except ValueError:
+                app.logger.warning(
+                    "Skipping article %s with an invalid scheduled publication time.",
+                    article.get("id", ""),
+                )
+                continue
+            if scheduled_time > current_time:
+                continue
+            try:
+                approved_by = article.get("scheduled_publish_approved_by") or "Site editor"
+                sent, failed = publish_article_record(
+                    article,
+                    records,
+                    approved_by,
+                    published_at=current_time,
+                )
+                published_count += 1
+                failed_count += failed
+                if failed:
+                    app.logger.error(
+                        "Scheduled article %s was published, but newsletter delivery failed for %s subscriber(s).",
+                        article.get("id", ""),
+                        failed,
+                    )
+                elif sent:
+                    app.logger.info(
+                        "Scheduled article %s published and sent to %s confirmed subscriber(s).",
+                        article.get("id", ""),
+                        sent,
+                    )
+                else:
+                    app.logger.info(
+                        "Scheduled article %s published without confirmed newsletter subscribers.",
+                        article.get("id", ""),
+                    )
+            except Exception:
+                failed_count += 1
+                app.logger.exception(
+                    "Could not publish scheduled article %s.",
+                    article.get("id", ""),
+                )
+        return {
+            "status": "complete",
+            "published": published_count,
+            "failed": failed_count,
+        }
+    finally:
+        finish_scheduled_publication_run()
+
+
 def run_autopilot_once():
     config = load_autopilot_config()
     if not config["enabled"]:
@@ -920,9 +1481,10 @@ def save_article(article):
         connection.close()
 
 
-def reserve_submission_slot(email):
+def reserve_submission_slot(email, purpose="submission"):
+    rate_limit_subject = email.casefold() if purpose == "submission" else f"{purpose}:{email.casefold()}"
     email_hash = hmac.new(
-        app.secret_key.encode("utf-8"), email.casefold().encode("utf-8"), hashlib.sha256
+        app.secret_key.encode("utf-8"), rate_limit_subject.encode("utf-8"), hashlib.sha256
     ).hexdigest()
     now = datetime.now().timestamp()
     connection = sqlite3.connect(DATABASE_PATH, timeout=10)
@@ -970,6 +1532,17 @@ def initialize_database():
                 "id INTEGER PRIMARY KEY CHECK (id = 1), username TEXT NOT NULL UNIQUE, password_hash TEXT NOT NULL)"
             )
             connection.execute(
+                "CREATE TABLE IF NOT EXISTS client_users ("
+                "id TEXT PRIMARY KEY, email TEXT NOT NULL COLLATE NOCASE UNIQUE, "
+                "display_name TEXT NOT NULL, password_hash TEXT NOT NULL, created_at TEXT NOT NULL)"
+            )
+            connection.execute(
+                "CREATE TABLE IF NOT EXISTS client_generation_usage ("
+                "client_id TEXT NOT NULL, generation_date TEXT NOT NULL, generation_count INTEGER NOT NULL, "
+                "PRIMARY KEY (client_id, generation_date), "
+                "FOREIGN KEY (client_id) REFERENCES client_users(id) ON DELETE CASCADE)"
+            )
+            connection.execute(
                 "CREATE TABLE IF NOT EXISTS submission_rate_limits ("
                 "email_hash TEXT PRIMARY KEY, window_started_at REAL NOT NULL, submission_count INTEGER NOT NULL)"
             )
@@ -979,6 +1552,12 @@ def initialize_database():
                 "PRIMARY KEY (view_date, page_key))"
             )
             connection.execute(
+                "CREATE TABLE IF NOT EXISTS search_console_rows ("
+                "query TEXT NOT NULL, page TEXT NOT NULL, clicks REAL NOT NULL, "
+                "impressions REAL NOT NULL, ctr REAL NOT NULL, position REAL NOT NULL, "
+                "PRIMARY KEY (query, page))"
+            )
+            connection.execute(
                 "CREATE TABLE IF NOT EXISTS site_pages ("
                 "id TEXT PRIMARY KEY, slug TEXT NOT NULL UNIQUE, title TEXT NOT NULL, "
                 "description TEXT NOT NULL, content TEXT NOT NULL, status TEXT NOT NULL, "
@@ -986,7 +1565,25 @@ def initialize_database():
             )
             connection.execute(
                 "CREATE TABLE IF NOT EXISTS newsletter_subscribers ("
-                "email TEXT PRIMARY KEY COLLATE NOCASE, subscribed_at TEXT NOT NULL)"
+                "email TEXT PRIMARY KEY COLLATE NOCASE, subscribed_at TEXT NOT NULL, "
+                "confirmation_token_hash TEXT, confirmation_expires_at TEXT, confirmed_at TEXT)"
+            )
+            subscriber_columns = {
+                row[1] for row in connection.execute("PRAGMA table_info(newsletter_subscribers)")
+            }
+            for column, declaration in (
+                ("confirmation_token_hash", "TEXT"),
+                ("confirmation_expires_at", "TEXT"),
+                ("confirmed_at", "TEXT"),
+            ):
+                if column not in subscriber_columns:
+                    connection.execute(
+                        f"ALTER TABLE newsletter_subscribers ADD COLUMN {column} {declaration}"
+                    )
+            connection.execute(
+                "CREATE TABLE IF NOT EXISTS newsletter_deliveries ("
+                "article_id TEXT NOT NULL, email TEXT NOT NULL COLLATE NOCASE, sent_at TEXT NOT NULL, "
+                "PRIMARY KEY (article_id, email))"
             )
             connection.execute(
                 "CREATE TABLE IF NOT EXISTS keyword_queue ("
@@ -1063,6 +1660,98 @@ def load_articles_from_database(database_path):
         connection.close()
 
 
+def configured_site_profiles():
+    profiles = []
+    seen_databases = set()
+    for env_filename in (".env", ".env.tech"):
+        env_path = ROOT / env_filename
+        if not env_path.is_file():
+            continue
+        config = dotenv_values(env_path)
+        database_setting = Path(config.get("DATABASE_PATH") or "data/site.sqlite3")
+        database_path = database_setting if database_setting.is_absolute() else ROOT / database_setting
+        database_path = database_path.resolve()
+        if database_path in seen_databases:
+            continue
+        seen_databases.add(database_path)
+        port_value = config.get("PORT") or ("5001" if env_filename == ".env.tech" else "5000")
+        try:
+            port = int(port_value)
+        except (TypeError, ValueError):
+            app.logger.warning("Ignoring invalid PORT in %s while building site overview.", env_filename)
+            port = None
+        if port is not None and not 1 <= port <= 65535:
+            app.logger.warning("Ignoring out-of-range PORT in %s while building site overview.", env_filename)
+            port = None
+        profiles.append({
+            "database_path": database_path,
+            "site_name": str(config.get("SITE_NAME") or config.get("SITE_NICHE") or env_filename).strip(),
+            "port": port,
+            "initialized": False,
+            "available": True,
+            "article_count": 0,
+            "draft_count": 0,
+            "pending_count": 0,
+            "published_count": 0,
+        })
+
+    if DATABASE_PATH.resolve() not in seen_databases:
+        profiles.insert(0, {
+            "database_path": DATABASE_PATH.resolve(),
+            "site_name": load_site_settings()["site_name"],
+            "port": APP_PORT,
+            "initialized": False,
+            "available": True,
+            "article_count": 0,
+            "draft_count": 0,
+            "pending_count": 0,
+            "published_count": 0,
+        })
+
+    for profile in profiles:
+        database_path = profile["database_path"]
+        if not database_path.is_file():
+            continue
+        connection = sqlite3.connect(database_path, timeout=10)
+        try:
+            tables = {
+                row[0] for row in connection.execute(
+                    "SELECT name FROM sqlite_master WHERE type = 'table' AND name IN ('articles', 'app_meta')"
+                ).fetchall()
+            }
+            if "articles" not in tables:
+                continue
+            profile["initialized"] = True
+            for status, count in connection.execute(
+                "SELECT status, COUNT(*) FROM articles GROUP BY status"
+            ).fetchall():
+                profile["article_count"] += count
+                if status == "Draft":
+                    profile["draft_count"] += count
+                elif status == "Pending Review":
+                    profile["pending_count"] += count
+                elif status == "Published":
+                    profile["published_count"] += count
+            if "app_meta" in tables:
+                row = connection.execute(
+                    "SELECT value FROM app_meta WHERE key = 'site_settings'"
+                ).fetchone()
+                if row:
+                    try:
+                        stored_settings = json.loads(row[0])
+                    except json.JSONDecodeError:
+                        app.logger.warning("Invalid site settings JSON in a configured profile database.")
+                    else:
+                        if isinstance(stored_settings, dict) and isinstance(stored_settings.get("site_name"), str):
+                            profile["site_name"] = stored_settings["site_name"].strip() or profile["site_name"]
+        except sqlite3.Error:
+            app.logger.exception("Could not summarize configured site profile database.")
+            profile["available"] = False
+        finally:
+            connection.close()
+    return profiles
+
+
 def articles_for_niche(niche, articles=None):
     records = load_articles() if articles is None else articles
     target_niche = normalize_topic_text(niche)
@@ -1100,6 +1789,75 @@ def current_admin_account():
         connection.close()
 
 
+def client_account_by_id(client_id):
+    if not client_id:
+        return None
+    connection = sqlite3.connect(DATABASE_PATH, timeout=10)
+    try:
+        row = connection.execute(
+            "SELECT id, email, display_name, password_hash FROM client_users WHERE id = ?",
+            (client_id,),
+        ).fetchone()
+        if not row:
+            return None
+        return {"id": row[0], "email": row[1], "display_name": row[2], "password_hash": row[3]}
+    finally:
+        connection.close()
+
+
+def client_articles(client_id):
+    return sorted(
+        (article for article in load_articles() if article.get("client_id") == client_id),
+        key=lambda article: article.get("created_at", ""),
+        reverse=True,
+    )
+
+
+def reserve_client_generation(client_id):
+    generation_date = datetime.now().astimezone().date().isoformat()
+    connection = sqlite3.connect(DATABASE_PATH, timeout=10)
+    try:
+        with connection:
+            cursor = connection.execute(
+                "INSERT INTO client_generation_usage (client_id, generation_date, generation_count) "
+                "VALUES (?, ?, 1) ON CONFLICT(client_id, generation_date) DO UPDATE SET "
+                "generation_count = generation_count + 1 "
+                "WHERE generation_count < ?",
+                (client_id, generation_date, CLIENT_DAILY_GENERATION_LIMIT),
+            )
+        return cursor.rowcount == 1
+    finally:
+        connection.close()
+
+
+def release_client_generation(client_id):
+    generation_date = datetime.now().astimezone().date().isoformat()
+    connection = sqlite3.connect(DATABASE_PATH, timeout=10)
+    try:
+        with connection:
+            connection.execute(
+                "UPDATE client_generation_usage SET generation_count = generation_count - 1 "
+                "WHERE client_id = ? AND generation_date = ? AND generation_count > 0",
+                (client_id, generation_date),
+            )
+    finally:
+        connection.close()
+
+
+def client_generations_remaining(client_id):
+    generation_date = datetime.now().astimezone().date().isoformat()
+    connection = sqlite3.connect(DATABASE_PATH, timeout=10)
+    try:
+        row = connection.execute(
+            "SELECT generation_count FROM client_generation_usage "
+            "WHERE client_id = ? AND generation_date = ?",
+            (client_id, generation_date),
+        ).fetchone()
+        return max(0, CLIENT_DAILY_GENERATION_LIMIT - (row[0] if row else 0))
+    finally:
+        connection.close()
+
+
 def article_slug(title, articles):
     base = re.sub(r"[^a-z0-9]+", "-", title.casefold()).strip("-") or "article"
     used = {item.get("slug") for item in articles if item.get("slug")}
@@ -1127,11 +1885,19 @@ def remove_body_h1(value):
 
 def article_seo_checks(article):
     keyword = article.get("keyword", "").strip()
-    text = engine.article_text(article.get("article_html", ""))
+    article_html = article.get("article_html", "")
+    text = engine.article_text(article_html)
     words = re.findall(r"\b[\w’'-]+\b", text, flags=re.UNICODE)
     first_100_words = " ".join(words[:100]).casefold()
     meta_title = article.get("meta_title", "")
     meta_description = article.get("meta_description", "")
+    headings = re.findall(r"<h2\b[^>]*>(.*?)</h2\s*>", article_html, flags=re.IGNORECASE | re.DOTALL)
+    paragraphs = re.findall(r"<p\b[^>]*>(.*?)</p\s*>", article_html, flags=re.IGNORECASE | re.DOTALL)
+    paragraph_lengths = [
+        len(re.findall(r"\b[\w’'-]+\b", engine.article_text(paragraph), flags=re.UNICODE))
+        for paragraph in paragraphs
+    ]
+    sources = safe_article_sources(article.get("sources", []))
     return {
         "word_count": len(words),
         "title_ok": 0 < len(meta_title) <= 60,
@@ -1139,6 +1905,12 @@ def article_seo_checks(article):
         "keyword_set": bool(keyword),
         "keyword_in_title": bool(keyword) and keyword.casefold() in meta_title.casefold(),
         "keyword_in_intro": bool(keyword) and keyword.casefold() in first_100_words,
+        "heading_count": len(headings),
+        "headings_ok": len(headings) >= 3 and all(engine.article_text(item).strip() for item in headings),
+        "paragraph_count": len(paragraphs),
+        "paragraphs_ok": len(paragraphs) >= 3 and all(length <= 180 for length in paragraph_lengths),
+        "source_count": len(sources),
+        "sources_available": bool(sources),
     }
 
 
@@ -1211,11 +1983,12 @@ def workspace_context():
         ),
         "site_showcase": [
             {"label": label, "title": title, "image_url": image_url}
-            for (label, title), image_url in zip(showcase_copy, cover_images[1:])
+            for (label, title), image_url in zip(showcase_copy, cover_images[1:6])
         ],
         "newsletter_enabled": settings["newsletter_enabled"],
         "newsletter_title": settings["newsletter_title"],
         "newsletter_description": settings["newsletter_description"],
+        "newsletter_delivery_configured": newsletter_email_configured(),
         "google_site_verification": os.getenv("GOOGLE_SITE_VERIFICATION", "").strip(),
         "site_base_url": os.getenv("PUBLIC_SITE_URL", "").strip().rstrip("/"),
         "contact_email": os.getenv("CONTACT_EMAIL", "").strip(),
@@ -1223,6 +1996,7 @@ def workspace_context():
         "admin_logged_in": session.get("admin_authenticated", False),
         "admin_username": session.get("admin_username", ""),
         "admin_login_enabled": bool(current_admin_account()),
+        "client_logged_in": signed_in_client() is not None,
     }
 
 
@@ -1311,7 +2085,7 @@ INFO_PAGES = {
         "description": SITE_DESCRIPTION,
         "sections": [
             ("What we cover", "Useful, clear guidance built around the site's active niche and its readers' real questions."),
-            ("How we work", "We aim to publish original, useful guidance and review contributed articles before they appear."),
+            ("How we work", "We aim to publish original, useful guidance. Articles submitted by client accounts can be published immediately after the contributor confirms publication rights; those articles are identified as not independently reviewed."),
         ],
     },
     "contact": {
@@ -1325,10 +2099,11 @@ INFO_PAGES = {
         "title": "Your information and submitted content.",
         "description": "This page describes the current local prototype and must be reviewed before a public launch.",
         "sections": [
-            ("Article submissions", "Submission names, contact emails, article text, source URLs, and reprint-permission records are stored in SQLite and included in database backups for editorial review. Contact the editorial team for access, correction, or removal requests."),
-            ("Newsletter", "When the newsletter signup is enabled, subscriber email addresses and signup times are stored in this site's SQLite database. This prototype does not send newsletter messages. Contact the site owner to request removal."),
+            ("Article submissions", "Client account names, contact emails, article text, source URLs, and reprint-permission records are stored in SQLite and included in database backups. Articles a client chooses to publish are immediately public and may not receive independent editorial review. Contact the site owner for access, correction, or removal requests."),
+            ("Newsletter", "If newsletter signup is enabled, your email address is stored in this site's SQLite database while your confirmation is pending or you remain subscribed. Signup requires email confirmation. Confirmed subscribers receive an email when a new article is published. Each email includes an unsubscribe link; you can also contact the site owner to request removal."),
             ("Abuse prevention", "A keyed hash of a submitter email is used for a short-term submission limit; expired hashes are pruned when a later submission is processed. The site does not store visitor IP addresses for this purpose."),
             ("Traffic reporting", "The workspace stores daily aggregate page-view counts by public page. It does not store IP addresses, referrers, user agents, or cookies for analytics, and these counts are not unique visitors or Search Console clicks."),
+            ("Saved articles", "Saved article bookmarks are stored in your browser's local storage on this device. They are not sent to this site or synced across browsers and devices. Remove a bookmark from the Saved stories page or clear this site's browser storage."),
             ("Article images", "Public articles use cover photos hosted by Unsplash unless the site editor provides another HTTPS image URL. A visitor's browser contacts the image host directly to load each photo."),
             ("Account and security", "The workspace uses a necessary session cookie for sign-in, request security, and the submission form's anti-spam timing check."),
             ("AI drafting", "If the owner uses the AI drafting tools, the selected keyword and generation prompt are sent to Groq for processing. Do not submit confidential material unless you have reviewed the provider's terms."),
@@ -1340,10 +2115,10 @@ INFO_PAGES = {
         "title": "Useful, relevant, and reviewed.",
         "description": "We consider home and interior articles that give readers specific, original help.",
         "sections": [
-            ("Review standards", "Submissions are reviewed for relevance, originality, clarity, factual support, and appropriate sourcing before publication."),
+            ("Publication and review", "Client account articles are published immediately after the contributor confirms they own the work or have authority to grant publication rights. These articles are identified as not independently reviewed. Other content managed by the editorial team is reviewed for relevance, originality, clarity, factual support, and appropriate sourcing before publication."),
             ("AI-assisted articles", "AI tools may assist with drafting. Articles published automatically are identified as such, and a human review is only shown when a reviewer and review date are recorded."),
-            ("Reprint permission", "Submitters must own the submitted work or have authority to license it. By submitting, they grant Urban Nest Interiors a non-exclusive, royalty-free license to reproduce, display, format, and promote the article on its website. They confirm that submitted details and permissions are accurate. Submission does not guarantee acceptance, publication, traffic, or rankings."),
-            ("Syndicated articles", "If the same article is already published elsewhere, submitters must provide its original URL and may request that our copy use that URL as its canonical. The editorial team chooses whether to publish, use a canonical, or request an original version."),
+            ("Reprint permission", "Submitters must own the submitted work or have authority to license it. By publishing, they grant the publication a non-exclusive, royalty-free license to reproduce, display, format, and promote the article on its website. They confirm that submitted details and permissions are accurate. Publication does not guarantee traffic or rankings."),
+            ("Syndicated articles", "If the same article is already published elsewhere, submitters must provide its original URL. They may request that our copy use that URL as its canonical; the publication may correct canonical metadata when needed."),
             ("Commercial relationships", "Paid, gifted, or otherwise sponsored relationships must be disclosed clearly. Editorial inclusion does not promise traffic, rankings, or sales."),
             ("Corrections and permissions", "Contributors must have permission to submit their text and media. Send correction requests through the configured contact address."),
         ],
@@ -1358,8 +2133,8 @@ def build_faq_schema(page_key):
             ("How do you choose what to publish?", "We prioritize useful, original guidance and clear, trustworthy advice that helps real readers."),
         ],
         "contact": [
-            ("Can I submit a guest article?", "Yes, send a short pitch, your experience, and any source links or permissions you have."),
-            ("How long does review take?", "Most editorial review happens within a few business days depending on the submission volume."),
+            ("How do I submit an article?", "Create a client account, generate or write a draft, confirm your publication rights, and choose Publish now. The article appears on the blog immediately."),
+            ("Are client articles reviewed before publication?", "No. Client-published articles are identified as not independently reviewed. The contributor is responsible for confirming publication rights and submitted details."),
         ],
     }
     items = faq_map.get(page_key, [])
@@ -1427,14 +2202,20 @@ def public_site_page(slug):
 
 @app.before_request
 def protect_admin_routes():
-    if request.method == "POST" and request.endpoint in ADMIN_ENDPOINTS | {"login", "logout", "admin_setup", "submit_article", "newsletter_signup"}:
+    if request.method == "POST" and request.endpoint in ADMIN_ENDPOINTS | {
+        "login", "logout", "admin_setup", "submit_article", "newsletter_signup",
+        "newsletter_confirm", "newsletter_unsubscribe",
+        "client_signup", "client_login", "client_logout", "client_article_new", "client_generate_article",
+        "client_article_detail",
+    }:
         expected = session.get("_csrf_token", "")
         provided = request.form.get("_csrf_token", "")
         if not expected or not provided or not hmac.compare_digest(expected, provided):
             abort(400)
-    if APP_ENV == "production" and request.endpoint == "submit_article" and not PUBLIC_SUBMISSIONS_ENABLED:
-        abort(404)
     if request.endpoint in ADMIN_ENDPOINTS and not session.get("admin_authenticated"):
+        if signed_in_client() is not None:
+            flash("Admin workspace access is reserved for site administrators.", "error")
+            return redirect(url_for("client_portal"))
         if current_admin_account():
             return redirect(url_for("login"))
         if APP_ENV != "production":
@@ -1488,11 +2269,24 @@ def home():
         key=lambda article: article.get("published_at", article.get("created_at", "")),
         reverse=True,
     )
-    for index, article in enumerate(journal_articles[:3]):
+    for index, article in enumerate(journal_articles):
         article["topic_cluster"] = article.get("topic_cluster") or topic_cluster_for_keyword(
             article.get("niche", ""), article.get("keyword", "")
-        )
+        ) or "Other topics"
         article["cover_image_url"] = article_cover_image(article, index)
+        article["reading_time_minutes"] = article_reading_minutes(article)
+    popular_articles = most_read_articles(journal_articles)
+    homepage_articles = journal_articles[:24]
+    homepage_categories = list(dict.fromkeys(
+        article["topic_cluster"] for article in homepage_articles
+    ))
+    homepage_popular_topics = list(dict.fromkeys(
+        article.get("keyword", "").strip()
+        for article in homepage_articles
+        if article.get("keyword", "").strip()
+    ))[:6]
+    if not homepage_popular_topics:
+        homepage_popular_topics = seed_keywords(current_niche())[:6]
 
     sections = [
         {
@@ -1508,8 +2302,6 @@ def home():
             "text": "Generate article ideas, write SEO posts, and publish them automatically.",
         },
     ]
-
-    topics = seed_keywords(current_niche())[:5]
 
     plans = [
         {
@@ -1540,9 +2332,14 @@ def home():
     return render_template(
         "index.html",
         sections=sections,
-        topics=topics,
         plans=plans,
-        journal_articles=journal_articles[:3],
+        editor_pick=homepage_articles[0] if homepage_articles else None,
+        journal_articles=homepage_articles[1:4],
+        more_journal_articles=homepage_articles[4:],
+        popular_articles=popular_articles,
+        homepage_article_count=len(homepage_articles),
+        homepage_categories=homepage_categories,
+        homepage_popular_topics=homepage_popular_topics,
         canonical=canonical,
         schema=schema,
     )
@@ -1567,6 +2364,265 @@ def login():
             return redirect(url_for("dashboard"))
         flash("Username or password was incorrect.", "error")
     return render_template("login.html")
+
+
+@app.route("/client/signup", methods=["GET", "POST"])
+def client_signup():
+    if session.get("client_id") and client_account_by_id(session["client_id"]):
+        return redirect(url_for("client_portal"))
+    if request.method == "POST":
+        display_name = request.form.get("display_name", "").strip()
+        email = request.form.get("email", "").strip().casefold()
+        password = request.form.get("password", "")
+        confirm = request.form.get("confirm_password", "")
+        if not display_name or len(display_name) > 100:
+            flash("Enter your name (up to 100 characters).", "error")
+        elif len(email) > 254 or not re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", email):
+            flash("Enter a valid email address.", "error")
+        elif not 12 <= len(password) <= 256:
+            flash("Use a password between 12 and 256 characters.", "error")
+        elif password != confirm:
+            flash("The passwords do not match.", "error")
+        else:
+            client_id = uuid.uuid4().hex
+            connection = sqlite3.connect(DATABASE_PATH, timeout=10)
+            try:
+                with connection:
+                    connection.execute(
+                        "INSERT INTO client_users (id, email, display_name, password_hash, created_at) "
+                        "VALUES (?, ?, ?, ?, ?)",
+                        (
+                            client_id, email, display_name, generate_password_hash(password),
+                            datetime.now().astimezone().isoformat(timespec="minutes"),
+                        ),
+                    )
+            except sqlite3.IntegrityError:
+                flash("An account with that email already exists. Please sign in instead.", "error")
+            finally:
+                connection.close()
+            if client_account_by_id(client_id):
+                session.clear()
+                session["client_id"] = client_id
+                session["client_name"] = display_name
+                return redirect(url_for("client_portal"))
+    return render_template("client_auth.html", page="signup")
+
+
+@app.route("/client/login", methods=["GET", "POST"])
+def client_login():
+    if session.get("client_id") and client_account_by_id(session["client_id"]):
+        return redirect(url_for("client_portal"))
+    if request.method == "POST":
+        email = request.form.get("email", "").strip().casefold()
+        password = request.form.get("password", "")
+        connection = sqlite3.connect(DATABASE_PATH, timeout=10)
+        try:
+            row = connection.execute(
+                "SELECT id, display_name, password_hash FROM client_users WHERE email = ?",
+                (email,),
+            ).fetchone()
+        finally:
+            connection.close()
+        if row and check_password_hash(row[2], password):
+            session.clear()
+            session["client_id"] = row[0]
+            session["client_name"] = row[1]
+            return redirect(url_for("client_portal"))
+        flash("Email or password was incorrect.", "error")
+    return render_template("client_auth.html", page="login")
+
+
+@app.route("/client/logout", methods=["POST"])
+def client_logout():
+    session.clear()
+    return redirect(url_for("home"))
+
+
+def signed_in_client():
+    account = client_account_by_id(session.get("client_id"))
+    if account is None:
+        return None
+    return account
+
+
+@app.route("/client")
+def client_portal():
+    account = signed_in_client()
+    if account is None:
+        return redirect(url_for("client_login"))
+    return render_template(
+        "client_portal.html",
+        page="dashboard",
+        account=account,
+        articles=client_articles(account["id"]),
+        generation_remaining=client_generations_remaining(account["id"]),
+    )
+
+
+def save_client_draft(account, article=None):
+    if article and article.get("status") != "Draft":
+        flash("Only private drafts can be edited.", "error")
+        return redirect(url_for("client_portal"))
+
+    title = request.form.get("title", "").strip()
+    author = request.form.get("author", "").strip()
+    keyword = request.form.get("keyword", "").strip()
+    meta_title = request.form.get("meta_title", "").strip()
+    meta_description = request.form.get("meta_description", "").strip()
+    content = request.form.get("content", "").strip()
+    original_url = request.form.get("original_url", "").strip()
+    client_website_url = request.form.get("client_website_url", "").strip()
+    canonical_to_original = request.form.get("canonical_to_original") == "on"
+    publish_now = request.form.get("action") == "publish_now"
+    if not title or len(title) > 180 or not content or len(content) > 100000:
+        flash("Add a title (up to 180 characters) and article text (up to 100,000 characters).", "error")
+        return redirect(request.path)
+    if (len(author) > 100 or len(keyword) > 160 or len(meta_title) > 60
+            or len(meta_description) > 155 or len(original_url) > 2000):
+        flash("Check the author, keyword, and SEO metadata character limits.", "error")
+        return redirect(request.path)
+    if original_url and not is_safe_external_url(original_url):
+        flash("The original article URL must use HTTP or HTTPS.", "error")
+        return redirect(request.path)
+    if client_website_url and not is_safe_external_url(client_website_url):
+        flash("Your website link must use HTTP or HTTPS.", "error")
+        return redirect(request.path)
+    if canonical_to_original and not original_url:
+        flash("Add the original article URL before requesting an original canonical.", "error")
+        return redirect(request.path)
+    if publish_now and request.form.get("rights_confirmed") != "on":
+        flash("Confirm that you have the rights to publish this article.", "error")
+        return redirect(request.path)
+    if publish_now and not reserve_submission_slot(account["email"]):
+        flash("Your account has reached the hourly publishing limit. Try again later.", "error")
+        return redirect(request.path)
+
+    article_html = clean_submitted_content(content)
+    if not engine.article_text(article_html):
+        flash("Add readable article text before saving.", "error")
+        return redirect(request.path)
+    now = datetime.now().astimezone().isoformat(timespec="minutes")
+    record = dict(article or {})
+    record.update({
+        "id": record.get("id") or uuid.uuid4().hex,
+        "article_title": title,
+        "meta_title": meta_title or engine.normalize_meta_text(title, 60),
+        "meta_description": meta_description or engine.normalize_meta_text(engine.article_text(article_html), 155),
+        "article_html": article_html,
+        "keyword": keyword,
+        "author": author or account["display_name"],
+        "contributor_email": account["email"],
+        "client_id": account["id"],
+        "niche": current_niche(),
+        "topic_cluster": topic_cluster_for_keyword(current_niche(), keyword),
+        "created_at": record.get("created_at", now),
+        "status": "Draft",
+        "source": "Client account",
+        "original_url": original_url,
+        "client_website_url": client_website_url,
+        "canonical_to_original": canonical_to_original,
+    })
+    if publish_now:
+        record["reprint_permission_at"] = now
+        record["reprint_terms_version"] = REPRINT_TERMS_VERSION
+        sent, failed = publish_client_article_record(record, articles_for_site_profile(), datetime.now().astimezone())
+        if failed:
+            flash(
+                f"Your article is live, but newsletter delivery failed for {failed} subscriber(s). "
+                "Check SMTP settings and server logs.",
+                "error",
+            )
+        elif sent:
+            flash(f"Your article is live. Newsletter sent to {sent} confirmed subscriber(s).", "success")
+        else:
+            flash("Your article is now live on the blog.", "success")
+    else:
+        save_article(record)
+        flash("Draft saved privately to your client account.", "success")
+    return redirect(url_for("client_portal"))
+
+
+@app.route("/client/articles/new", methods=["GET", "POST"])
+def client_article_new():
+    account = signed_in_client()
+    if account is None:
+        return redirect(url_for("client_login"))
+    if request.method == "POST":
+        return save_client_draft(account)
+    return render_template(
+        "client_portal.html", page="editor", account=account, article=None,
+        generation_remaining=client_generations_remaining(account["id"]),
+    )
+
+
+@app.route("/client/articles/generate", methods=["POST"])
+def client_generate_article():
+    account = signed_in_client()
+    if account is None:
+        return redirect(url_for("client_login"))
+    keyword = request.form.get("keyword", "").strip()
+    if not keyword or len(keyword) > 160:
+        flash("Enter a topic or target keyword up to 160 characters.", "error")
+        return redirect(url_for("client_article_new"))
+    if not reserve_client_generation(account["id"]):
+        flash(
+            f"You have used all {CLIENT_DAILY_GENERATION_LIMIT} AI article generations for today. Try again tomorrow.",
+            "error",
+        )
+        return redirect(url_for("client_article_new"))
+
+    try:
+        api_key = os.getenv("GROQ_API_KEY", "").strip() if configured_secret("GROQ_API_KEY") else ""
+        if not api_key:
+            raise RuntimeError("AI article generation is unavailable. Please contact the site team.")
+        client = Groq(api_key=api_key, timeout=90, max_retries=2)
+        article = engine.generate_article(client, keyword, current_niche())
+        now = datetime.now().astimezone().isoformat(timespec="minutes")
+        record = {
+            "id": uuid.uuid4().hex,
+            "keyword": keyword,
+            "niche": current_niche(),
+            "topic_cluster": topic_cluster_for_keyword(current_niche(), keyword),
+            "created_at": now,
+            "status": "Draft",
+            "source": "Client AI-generated draft",
+            "client_id": account["id"],
+            "contributor_email": account["email"],
+            "author": account["display_name"],
+            **article,
+            "article_html": remove_body_h1(article["article_html"]),
+        }
+        save_article(record)
+    except Exception as exc:
+        release_client_generation(account["id"])
+        app.logger.exception("Could not generate a client article draft")
+        flash(groq_error_message(exc), "error")
+        return redirect(url_for("client_article_new"))
+
+    flash("Your AI-generated article is saved as a private draft. Review it, then publish it when you are ready.", "success")
+    return redirect(url_for("client_article_detail", article_id=record["id"]))
+
+
+@app.route("/client/articles/<article_id>", methods=["GET", "POST"])
+def client_article_detail(article_id):
+    account = signed_in_client()
+    if account is None:
+        return redirect(url_for("client_login"))
+    article = next(
+        (item for item in client_articles(account["id"]) if item.get("id") == article_id),
+        None,
+    )
+    if article is None:
+        abort(404)
+    if request.method == "POST":
+        return save_client_draft(account, article)
+    return render_template(
+        "client_portal.html",
+        page="editor" if article.get("status") == "Draft" else "article",
+        account=account,
+        article=article,
+        generation_remaining=client_generations_remaining(account["id"]),
+    )
 
 
 @app.route("/admin/setup", methods=["GET", "POST"])
@@ -1783,11 +2839,14 @@ def newsletter_settings():
     connection = sqlite3.connect(DATABASE_PATH, timeout=10)
     try:
         subscribers = connection.execute(
-            "SELECT email, subscribed_at FROM newsletter_subscribers ORDER BY subscribed_at DESC"
+            "SELECT email, subscribed_at, confirmed_at FROM newsletter_subscribers ORDER BY subscribed_at DESC"
         ).fetchall()
     finally:
         connection.close()
-    return render_template("workspace.html", page="newsletter", newsletter_subscribers=subscribers)
+    return render_template(
+        "workspace.html", page="newsletter", newsletter_subscribers=subscribers,
+        newsletter_delivery_configured=newsletter_email_configured(),
+    )
 
 
 @app.route("/admin/newsletter/remove", methods=["POST"])
@@ -1808,28 +2867,270 @@ def newsletter_signup():
     settings = load_site_settings()
     if not settings["newsletter_enabled"]:
         abort(404)
+    return_to = request.form.get("return_to", "")
+    if return_to not in {"/", "/blog"} and not re.fullmatch(r"/blog/[a-z0-9][a-z0-9-]*", return_to):
+        return_to = "/"
+    redirect_target = return_to + "#newsletter"
     if request.form.get("company_website", "").strip():
-        return redirect(url_for("home"))
+        return redirect(redirect_target)
     email = request.form.get("email", "").strip().casefold()
     if (not re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", email)
             or len(email) > 254 or request.form.get("consent") != "on"):
         flash("Enter a valid email and confirm that you agree to receive newsletter updates.", "error")
-        return redirect(url_for("home") + "#newsletter")
+        return redirect(redirect_target)
+    if not newsletter_email_configured():
+        flash("Newsletter signup is temporarily unavailable while email delivery is configured.", "error")
+        return redirect(redirect_target)
+    if not reserve_submission_slot(email, purpose="newsletter"):
+        flash("Too many confirmation emails were requested for this address. Try again in an hour.", "error")
+        return redirect(redirect_target)
+
+    connection = sqlite3.connect(DATABASE_PATH, timeout=10)
+    try:
+        existing = connection.execute(
+            "SELECT confirmed_at FROM newsletter_subscribers WHERE email = ?", (email,)
+        ).fetchone()
+    except sqlite3.Error:
+        app.logger.exception("Could not check newsletter subscription")
+        flash("Could not process your subscription right now. Please try again later.", "error")
+        return redirect(redirect_target)
+    finally:
+        connection.close()
+    if existing and existing[0]:
+        flash("This email is already subscribed to article updates.", "success")
+        return redirect(redirect_target)
+
+    token = secrets.token_urlsafe(32)
+    token_hash = hashlib.sha256(token.encode("utf-8")).hexdigest()
+    subscribed_at = datetime.now().astimezone()
+    expires_at = (subscribed_at + timedelta(hours=24)).isoformat(timespec="minutes")
+    subscribed_at_text = subscribed_at.isoformat(timespec="minutes")
     connection = sqlite3.connect(DATABASE_PATH, timeout=10)
     try:
         with connection:
             connection.execute(
-                "INSERT OR IGNORE INTO newsletter_subscribers (email, subscribed_at) VALUES (?, ?)",
-                (email, datetime.now().astimezone().isoformat(timespec="minutes")),
+                "INSERT INTO newsletter_subscribers "
+                "(email, subscribed_at, confirmation_token_hash, confirmation_expires_at, confirmed_at) "
+                "VALUES (?, ?, ?, ?, NULL) "
+                "ON CONFLICT(email) DO UPDATE SET confirmation_token_hash = excluded.confirmation_token_hash, "
+                "confirmation_expires_at = excluded.confirmation_expires_at",
+                (email, subscribed_at_text, token_hash, expires_at),
             )
     except sqlite3.Error:
-        app.logger.exception("Could not save newsletter subscription")
-        flash("Could not save your subscription right now. Please try again later.", "error")
-        return redirect(url_for("home") + "#newsletter")
+        app.logger.exception("Could not save pending newsletter subscription")
+        flash("Could not process your subscription right now. Please try again later.", "error")
+        return redirect(redirect_target)
     finally:
         connection.close()
-    flash("Thanks for subscribing. Your email is on the site's newsletter list.", "success")
-    return redirect(url_for("home") + "#newsletter")
+    confirmation_url = canonical_url("newsletter_confirm", token=token)
+    try:
+        send_newsletter_email(
+            email,
+            f"Confirm your {load_site_settings()['site_name']} newsletter signup",
+            (
+                f"Confirm your subscription to {load_site_settings()['site_name']} article updates "
+                f"within 24 hours by opening this link:\n\n{confirmation_url}\n\n"
+                "If you did not request this, you can ignore this email."
+            ),
+        )
+    except (OSError, smtplib.SMTPException, RuntimeError):
+        app.logger.exception("Could not send newsletter confirmation email")
+        flash("We could not send a confirmation email right now. Please try again later.", "error")
+        return redirect(redirect_target)
+    flash("Check your inbox for a confirmation link to finish subscribing.", "success")
+    return redirect(redirect_target)
+
+
+@app.route("/newsletter/confirm/<token>", methods=["GET", "POST"])
+def newsletter_confirm(token):
+    if not re.fullmatch(r"[A-Za-z0-9_-]{40,60}", token):
+        abort(404)
+    token_hash = hashlib.sha256(token.encode("utf-8")).hexdigest()
+    connection = sqlite3.connect(DATABASE_PATH, timeout=10)
+    try:
+        subscriber = connection.execute(
+            "SELECT email, confirmation_expires_at FROM newsletter_subscribers "
+            "WHERE confirmation_token_hash = ?",
+            (token_hash,),
+        ).fetchone()
+        if not subscriber:
+            return render_template("newsletter_action.html", action="invalid"), 404
+        try:
+            expires_at = datetime.fromisoformat(subscriber[1])
+        except (TypeError, ValueError):
+            expires_at = datetime.min.astimezone()
+        if expires_at < datetime.now().astimezone():
+            with connection:
+                connection.execute(
+                    "DELETE FROM newsletter_subscribers WHERE email = ? AND confirmation_token_hash = ?",
+                    (subscriber[0], token_hash),
+                )
+            return render_template("newsletter_action.html", action="expired"), 410
+        if request.method == "POST":
+            now = datetime.now().astimezone().isoformat(timespec="minutes")
+            with connection:
+                connection.execute(
+                    "UPDATE newsletter_subscribers SET confirmed_at = ?, confirmation_token_hash = NULL, "
+                    "confirmation_expires_at = NULL WHERE email = ? AND confirmation_token_hash = ?",
+                    (now, subscriber[0], token_hash),
+                )
+            flash("Your subscription is confirmed. You will receive an email when a new article is published.", "success")
+            return redirect(url_for("home") + "#newsletter")
+    except sqlite3.Error:
+        app.logger.exception("Could not confirm newsletter subscription")
+        abort(500)
+    finally:
+        connection.close()
+    return render_template("newsletter_action.html", action="confirm")
+
+
+@app.route("/newsletter/unsubscribe/<token>", methods=["GET", "POST"])
+def newsletter_unsubscribe(token):
+    serializer = URLSafeSerializer(app.secret_key, salt="newsletter-unsubscribe")
+    try:
+        email_hash = serializer.loads(token)
+    except BadSignature:
+        return render_template("newsletter_action.html", action="invalid"), 404
+    if not isinstance(email_hash, str) or not re.fullmatch(r"[a-f0-9]{64}", email_hash):
+        return render_template("newsletter_action.html", action="invalid"), 404
+
+    connection = sqlite3.connect(DATABASE_PATH, timeout=10)
+    try:
+        subscribers = connection.execute("SELECT email FROM newsletter_subscribers").fetchall()
+        email = next(
+            (
+                row[0] for row in subscribers
+                if hmac.compare_digest(hashlib.sha256(row[0].encode("utf-8")).hexdigest(), email_hash)
+            ),
+            None,
+        )
+        if email is None:
+            return render_template("newsletter_action.html", action="not_subscribed"), 404
+        if request.method == "POST":
+            with connection:
+                connection.execute("DELETE FROM newsletter_subscribers WHERE email = ?", (email,))
+            return render_template("newsletter_action.html", action="unsubscribed")
+    except sqlite3.Error:
+        app.logger.exception("Could not process newsletter unsubscribe request")
+        abort(500)
+    finally:
+        connection.close()
+    return render_template("newsletter_action.html", action="unsubscribe")
+
+
+def newsletter_email_configured():
+    host = os.getenv("NEWSLETTER_SMTP_HOST", "").strip()
+    sender = os.getenv("NEWSLETTER_FROM_EMAIL", "").strip()
+    security = os.getenv("NEWSLETTER_SMTP_SECURITY", "starttls").strip().lower()
+    public_site_url = urlparse(os.getenv("PUBLIC_SITE_URL", "").strip())
+    try:
+        port = int(os.getenv("NEWSLETTER_SMTP_PORT", "587"))
+    except ValueError:
+        return False
+    return (
+        bool(
+            host and re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", sender)
+            and public_site_url.scheme == "https" and public_site_url.netloc
+            and not public_site_url.username and not public_site_url.password
+            and public_site_url.path in {"", "/"} and not public_site_url.query and not public_site_url.fragment
+        )
+        and 1 <= port <= 65535 and security in {"starttls", "ssl", "none"}
+        and (security != "none" or not os.getenv("NEWSLETTER_SMTP_USERNAME", "").strip())
+        and (
+            bool(os.getenv("NEWSLETTER_SMTP_USERNAME", "").strip())
+            == bool(os.getenv("NEWSLETTER_SMTP_PASSWORD", ""))
+        )
+    )
+
+
+def send_newsletter_email(recipient, subject, body):
+    if not newsletter_email_configured():
+        raise RuntimeError("Configure NEWSLETTER_SMTP_HOST and NEWSLETTER_FROM_EMAIL to send newsletter email.")
+    host = os.getenv("NEWSLETTER_SMTP_HOST", "").strip()
+    port = int(os.getenv("NEWSLETTER_SMTP_PORT", "587"))
+    security = os.getenv("NEWSLETTER_SMTP_SECURITY", "starttls").strip().lower()
+    username = os.getenv("NEWSLETTER_SMTP_USERNAME", "").strip()
+    password = os.getenv("NEWSLETTER_SMTP_PASSWORD", "")
+    timeout = 20
+
+    message = EmailMessage()
+    message["Subject"] = " ".join(subject.splitlines())[:200]
+    message["From"] = formataddr((
+        " ".join(load_site_settings()["site_name"].splitlines()),
+        os.getenv("NEWSLETTER_FROM_EMAIL", "").strip(),
+    ))
+    message["To"] = recipient
+    message.set_content(body)
+
+    if security == "ssl":
+        with smtplib.SMTP_SSL(host, port, timeout=timeout, context=ssl.create_default_context()) as server:
+            if username:
+                server.login(username, password)
+            server.send_message(message)
+    else:
+        with smtplib.SMTP(host, port, timeout=timeout) as server:
+            if security == "starttls":
+                server.starttls(context=ssl.create_default_context())
+            if username:
+                server.login(username, password)
+            server.send_message(message)
+
+
+def send_published_article_newsletter(article):
+    connection = sqlite3.connect(DATABASE_PATH, timeout=10)
+    try:
+        subscribers = connection.execute(
+            "SELECT email FROM newsletter_subscribers AS subscriber "
+            "WHERE confirmed_at IS NOT NULL AND NOT EXISTS ("
+            "SELECT 1 FROM newsletter_deliveries AS delivery "
+            "WHERE delivery.article_id = ? AND delivery.email = subscriber.email)",
+            (article.get("id", ""),),
+        ).fetchall()
+    except sqlite3.Error:
+        app.logger.exception("Could not load confirmed newsletter subscribers")
+        return 0, 0
+    finally:
+        connection.close()
+
+    if not subscribers:
+        return 0, 0
+    if not newsletter_email_configured():
+        app.logger.error("Newsletter delivery skipped: SMTP settings are not configured.")
+        return 0, len(subscribers)
+
+    settings = load_site_settings()
+    article_url = canonical_url("public_article", slug=article.get("slug", ""))
+    sent = 0
+    failed = 0
+    for (email,) in subscribers:
+        serializer = URLSafeSerializer(app.secret_key, salt="newsletter-unsubscribe")
+        unsubscribe_token = serializer.dumps(hashlib.sha256(email.encode("utf-8")).hexdigest())
+        unsubscribe_url = canonical_url("home").rstrip("/") + url_for(
+            "newsletter_unsubscribe", token=unsubscribe_token
+        )
+        body = (
+            f"{article.get('article_title', 'A new article')} is now available on {settings['site_name']}.\n\n"
+            f"Read the article: {article_url}\n\n"
+            f"Unsubscribe from these updates: {unsubscribe_url}\n"
+        )
+        try:
+            send_newsletter_email(
+                email, f"New on {settings['site_name']}: {article.get('article_title', 'New article')}", body,
+            )
+            connection = sqlite3.connect(DATABASE_PATH, timeout=10)
+            try:
+                with connection:
+                    connection.execute(
+                        "INSERT OR IGNORE INTO newsletter_deliveries (article_id, email, sent_at) VALUES (?, ?, ?)",
+                        (article.get("id", ""), email, datetime.now().astimezone().isoformat(timespec="minutes")),
+                    )
+            finally:
+                connection.close()
+            sent += 1
+        except (OSError, smtplib.SMTPException, RuntimeError, sqlite3.Error):
+            app.logger.exception("Could not deliver newsletter article to a subscriber")
+            failed += 1
+    return sent, failed
 
 
 @app.route("/dashboard")
@@ -1842,33 +3143,239 @@ def dashboard():
     return render_template("workspace.html", page="dashboard", articles=articles[:5], all_articles=articles)
 
 
+@app.route("/sites")
+def site_overview():
+    return render_template(
+        "workspace.html",
+        page="sites",
+        site_profiles=configured_site_profiles(),
+    )
+
+
+def search_console_configuration():
+    property_name = os.getenv("GOOGLE_SEARCH_CONSOLE_PROPERTY", "").strip()
+    credential_value = os.getenv("GOOGLE_SEARCH_CONSOLE_CREDENTIALS_FILE", "").strip()
+    credentials_path = Path(credential_value) if credential_value else None
+    if credentials_path and not credentials_path.is_absolute():
+        credentials_path = ROOT / credentials_path
+
+    public_site = urlparse(os.getenv("PUBLIC_SITE_URL", "").strip())
+    if public_site.scheme != "https" or not public_site.netloc:
+        reason = "Set PUBLIC_SITE_URL to this site's public HTTPS address."
+    elif not property_name:
+        reason = "Set GOOGLE_SEARCH_CONSOLE_PROPERTY to the verified Search Console property."
+    elif not credentials_path:
+        reason = "Set GOOGLE_SEARCH_CONSOLE_CREDENTIALS_FILE to a private service-account JSON file."
+    elif not credentials_path.is_file():
+        reason = "The configured Search Console service-account JSON file was not found."
+    elif property_name.startswith("sc-domain:"):
+        property_host = property_name[len("sc-domain:"):].strip().casefold()
+        public_host = public_site.hostname.casefold()
+        if (not property_host or "/" in property_host
+                or not (public_host == property_host or public_host.endswith(f".{property_host}"))):
+            reason = "The Search Console domain property must match PUBLIC_SITE_URL's hostname."
+        else:
+            reason = ""
+    else:
+        property_url = urlparse(property_name)
+        if (property_url.scheme != "https" or not property_url.hostname
+                or property_url.hostname.casefold() != public_site.hostname.casefold()
+                or property_url.query or property_url.fragment):
+            reason = "Use the matching verified HTTPS URL-prefix property or sc-domain property."
+        else:
+            reason = ""
+    return {
+        "property": property_name,
+        "credentials_path": credentials_path,
+        "ready": not reason,
+        "reason": reason,
+    }
+
+
+def sync_search_console_data():
+    config = search_console_configuration()
+    if not config["ready"]:
+        return {"status": "not-configured", "reason": config["reason"]}
+    return search_console_integration.sync_search_console(
+        DATABASE_PATH,
+        config["property"],
+        config["credentials_path"],
+    )
+
+
+@app.route("/reports/search-console")
+def search_console_report():
+    config = search_console_configuration()
+    connection = sqlite3.connect(DATABASE_PATH, timeout=10)
+    try:
+        rows = connection.execute(
+            "SELECT query, page, clicks, impressions, ctr, position "
+            "FROM search_console_rows ORDER BY impressions DESC, clicks DESC"
+        ).fetchall()
+        metadata = dict(connection.execute(
+            "SELECT key, value FROM app_meta WHERE key LIKE 'search_console_%'"
+        ).fetchall())
+    finally:
+        connection.close()
+
+    total_clicks = sum(row[2] for row in rows)
+    total_impressions = sum(row[3] for row in rows)
+    average_position = (
+        sum(row[5] * row[3] for row in rows) / total_impressions
+        if total_impressions else 0
+    )
+    article_by_path = {}
+    for article in articles_for_site_profile():
+        if article.get("status") != "Published" or not article.get("slug"):
+            continue
+        article_by_path[urlparse(article_canonical_url(article)).path] = article
+
+    opportunities = []
+    for query, page_url, clicks, impressions, ctr, position in rows:
+        if impressions < 20:
+            continue
+        parsed_page = urlparse(page_url)
+        if parsed_page.scheme != "https" or not parsed_page.hostname:
+            continue
+        article = article_by_path.get(urlparse(page_url).path)
+        if position <= 10 and ctr < 0.02:
+            action = "Review the SEO title and description to make the result more compelling."
+            kind = "Click-through opportunity"
+        elif 4 <= position <= 20:
+            action = "Refresh useful content and add relevant internal links to improve ranking."
+            kind = "Ranking opportunity"
+        else:
+            continue
+        opportunities.append({
+            "query": query,
+            "page": page_url,
+            "clicks": int(clicks),
+            "impressions": int(impressions),
+            "ctr_percent": round(ctr * 100, 2),
+            "position": round(position, 1),
+            "kind": kind,
+            "action": action,
+            "article_id": article.get("id") if article else None,
+            "article_title": article.get("article_title") if article else None,
+        })
+    opportunities.sort(key=lambda item: (-item["impressions"], item["position"], item["query"]))
+    return render_template(
+        "workspace.html",
+        page="search_console",
+        search_console_configured=config["ready"],
+        search_console_reason=config["reason"],
+        search_console_property=config["property"],
+        search_console_synced_at=metadata.get("search_console_synced_at", ""),
+        search_console_start_date=metadata.get("search_console_start_date", ""),
+        search_console_end_date=metadata.get("search_console_end_date", ""),
+        search_console_truncated=metadata.get("search_console_truncated") == "1",
+        search_console_rows=len(rows),
+        search_console_clicks=int(total_clicks),
+        search_console_impressions=int(total_impressions),
+        search_console_ctr=round(total_clicks / total_impressions * 100, 2) if total_impressions else 0,
+        search_console_position=round(average_position, 1),
+        search_console_opportunities=opportunities[:50],
+    )
+
+
+@app.route("/reports/search-console/sync", methods=["POST"])
+def sync_search_console_report():
+    try:
+        result = sync_search_console_data()
+    except (RuntimeError, OSError, ValueError, sqlite3.Error) as exc:
+        app.logger.exception("Could not sync Google Search Console data")
+        flash(f"Search Console sync failed: {exc}", "error")
+        return redirect(url_for("search_console_report"))
+    if result["status"] == "not-configured":
+        flash(result["reason"], "error")
+    else:
+        flash(
+            f"Search Console synced {result['rows']} query/page rows for "
+            f"{result['start_date']} through {result['end_date']}.",
+            "success",
+        )
+    return redirect(url_for("search_console_report"))
+
+
 @app.route("/reports/traffic")
 def traffic_report():
     days = request.args.get("days", default=30, type=int)
     if days not in {7, 30, 90}:
         days = 30
-    start_date = (datetime.now().astimezone().date() - timedelta(days=days - 1)).isoformat()
+    today = datetime.now().astimezone().date()
+    current_start = today - timedelta(days=days - 1)
+    previous_start = current_start - timedelta(days=days)
+    current_start_text = current_start.isoformat()
+    previous_start_text = previous_start.isoformat()
     connection = sqlite3.connect(DATABASE_PATH, timeout=10)
     try:
         rows = connection.execute(
             "SELECT view_date, page_key, view_count FROM page_view_daily "
             "WHERE view_date >= ? ORDER BY view_date DESC, view_count DESC",
-            (start_date,),
+            (previous_start_text,),
         ).fetchall()
     finally:
         connection.close()
     page_totals = {}
     day_totals = {}
+    previous_total = 0
+    article_totals = {}
+    article_total = 0
+    published_by_slug = {
+        article.get("slug"): article
+        for article in articles_for_site_profile()
+        if article.get("status") == "Published" and article.get("slug")
+    }
     for view_date, page_key, view_count in rows:
+        if view_date < current_start_text:
+            previous_total += view_count
+            continue
         page_totals[page_key] = page_totals.get(page_key, 0) + view_count
         day_totals[view_date] = day_totals.get(view_date, 0) + view_count
+        match = re.fullmatch(r"/blog/([a-z0-9][a-z0-9-]*)", page_key)
+        if match and match.group(1) in published_by_slug:
+            article_totals[match.group(1)] = article_totals.get(match.group(1), 0) + view_count
+            article_total += view_count
+    daily_views = [
+        {
+            "date": (current_start + timedelta(days=offset)).isoformat(),
+            "views": day_totals.get((current_start + timedelta(days=offset)).isoformat(), 0),
+        }
+        for offset in range(days)
+    ]
+    daily_peak = max((item["views"] for item in daily_views), default=0)
+    for item in daily_views:
+        item["bar_width"] = round(item["views"] / daily_peak * 100) if daily_peak else 0
+
+    top_articles = []
+    for slug, view_count in sorted(article_totals.items(), key=lambda item: (-item[1], item[0])):
+        article = published_by_slug.get(slug)
+        if article:
+            top_articles.append({
+                "slug": slug,
+                "title": article.get("article_title") or article.get("meta_title") or slug,
+                "views": view_count,
+                "url": url_for("public_article", slug=slug),
+            })
+        if len(top_articles) == 5:
+            break
+    current_total = sum(day_totals.values())
     return render_template(
         "workspace.html",
         page="traffic",
         traffic_days=days,
-        traffic_total=sum(day_totals.values()),
+        traffic_total=current_total,
+        traffic_article_total=article_total,
+        traffic_articles_with_views=len(article_totals),
+        traffic_previous_total=previous_total,
+        traffic_period_change=(
+            round((current_total - previous_total) / previous_total * 100)
+            if previous_total else None
+        ),
+        traffic_top_articles=top_articles,
         traffic_by_page=sorted(page_totals.items(), key=lambda item: item[1], reverse=True),
         traffic_by_day=sorted(day_totals.items(), reverse=True),
+        traffic_daily_chart=daily_views,
     )
 
 
@@ -1900,25 +3407,138 @@ def calendar():
     records = articles_for_niche(current_niche())
     if request.method == "POST":
         article = next((item for item in records if item.get("id") == request.form.get("article_id")), None)
+        action = request.form.get("action", "review_date")
         schedule_date = request.form.get("scheduled_for", "").strip()
         if article is None or article.get("status") not in {"Draft", "Pending Review"}:
-            flash("Only saved drafts and submissions can be scheduled for review.", "error")
-        elif schedule_date:
+            flash("Only drafts and submissions waiting for review can be scheduled.", "error")
+        elif action == "schedule_publication":
+            publication_time = request.form.get("scheduled_publish_at", "").strip()
+            if request.form.get("approve_scheduled_publication") != "on":
+                flash("Confirm that the approved article may publish automatically at the selected time.", "error")
+            else:
+                try:
+                    scheduled_at = datetime.strptime(publication_time, "%Y-%m-%dT%H:%M").astimezone()
+                    if scheduled_at <= datetime.now().astimezone():
+                        raise ValueError("Select a future local date and time.")
+                    article["scheduled_publish_at"] = scheduled_at.isoformat(timespec="minutes")
+                    article["scheduled_publish_approved"] = True
+                    article["scheduled_publish_approved_by"] = session.get("admin_username", "Site editor")
+                    save_article(article)
+                    flash(
+                        f"Article approved and scheduled for {scheduled_at.strftime('%Y-%m-%d %H:%M')} local time. "
+                        "It remains private until then.",
+                        "success",
+                    )
+                except ValueError as exc:
+                    flash(str(exc) or "Choose a valid future publication date and time.", "error")
+        elif action == "cancel_publication":
+            clear_scheduled_publication(article)
+            save_article(article)
+            flash("Scheduled publication cancelled. The article remains private.", "success")
+        elif action == "review_date" and schedule_date:
             try:
                 datetime.strptime(schedule_date, "%Y-%m-%d")
                 article["scheduled_for"] = schedule_date
                 save_article(article)
-                flash("Review date saved. Publishing remains a manual approval step.", "success")
+                flash("Review reminder date saved.", "success")
             except ValueError:
                 flash("Choose a valid calendar date.", "error")
-        else:
+        elif action == "review_date":
             article.pop("scheduled_for", None)
             save_article(article)
             flash("Review date cleared.", "success")
+        else:
+            flash("Choose a valid calendar action.", "error")
         return redirect(url_for("calendar"))
+
+    today = datetime.now().astimezone().date()
+    requested_month = request.args.get("month", "")
+    try:
+        month_start = datetime.strptime(requested_month, "%Y-%m").date().replace(day=1) if requested_month else today.replace(day=1)
+        if month_start.strftime("%Y-%m") != requested_month and requested_month:
+            raise ValueError("Invalid calendar month.")
+    except ValueError:
+        month_start = today.replace(day=1)
+    requested_day = request.args.get("day", "")
+    try:
+        selected_date = datetime.strptime(requested_day, "%Y-%m-%d").date() if requested_day else today
+        if selected_date.strftime("%Y-%m") != month_start.strftime("%Y-%m"):
+            selected_date = today if today.strftime("%Y-%m") == month_start.strftime("%Y-%m") else month_start
+    except ValueError:
+        selected_date = today if today.strftime("%Y-%m") == month_start.strftime("%Y-%m") else month_start
+
     pending = [item for item in records if item.get("status") in {"Draft", "Pending Review"}]
-    pending.sort(key=lambda item: (item.get("scheduled_for") or "9999-12-31", item.get("created_at", "")))
-    return render_template("workspace.html", page="calendar", calendar_articles=pending)
+    events_by_date = {}
+    for item in pending:
+        scheduled_value = item.get("scheduled_publish_at", "")
+        try:
+            scheduled_at = datetime.fromisoformat(scheduled_value).astimezone() if scheduled_value else None
+            item["scheduled_publish_input"] = scheduled_at.strftime("%Y-%m-%dT%H:%M") if scheduled_at else ""
+        except ValueError:
+            app.logger.warning("Article %s has an invalid scheduled publication time.", item.get("id", ""))
+            scheduled_at = None
+            item["scheduled_publish_input"] = ""
+        title = str(item.get("article_title") or item.get("meta_title") or "Untitled article")
+        article_url = url_for("article_detail", article_id=item.get("id", ""))
+        review_date = item.get("scheduled_for", "")
+        try:
+            review_day = datetime.strptime(review_date, "%Y-%m-%d").date() if review_date else None
+        except ValueError:
+            app.logger.warning("Article %s has an invalid review reminder date.", item.get("id", ""))
+            review_day = None
+        if review_day:
+            events_by_date.setdefault(review_day, []).append({
+                "title": title, "url": article_url, "kind": "Review reminder",
+                "time": "", "sort": "00:00",
+            })
+        if scheduled_at and item.get("scheduled_publish_approved") is True:
+            publish_day = scheduled_at.date()
+            events_by_date.setdefault(publish_day, []).append({
+                "title": title, "url": article_url, "kind": "Approved publication",
+                "time": scheduled_at.strftime("%H:%M"), "sort": scheduled_at.strftime("%H:%M"),
+            })
+    pending.sort(key=lambda item: (
+        item.get("scheduled_publish_at") or item.get("scheduled_for") or "9999-12-31",
+        item.get("created_at", ""),
+    ))
+    first_weekday, days_in_month = month_calendar.monthrange(month_start.year, month_start.month)
+    grid_start = month_start - timedelta(days=first_weekday)
+    calendar_days = []
+    for offset in range(42):
+        day = grid_start + timedelta(days=offset)
+        events = sorted(events_by_date.get(day, []), key=lambda event: event["sort"])
+        calendar_days.append({
+            "date": day.isoformat(),
+            "day": day.day,
+            "in_month": day.month == month_start.month,
+            "is_today": day == today,
+            "is_selected": day == selected_date,
+            "events": events[:3],
+            "extra_events": max(0, len(events) - 3),
+            "url": url_for("calendar", month=day.strftime("%Y-%m"), day=day.isoformat()),
+        })
+    selected_events = sorted(events_by_date.get(selected_date, []), key=lambda event: event["sort"])
+    previous_month = (month_start.replace(day=1) - timedelta(days=1)).replace(day=1)
+    next_month = (
+        month_start.replace(year=month_start.year + 1, month=1)
+        if month_start.month == 12
+        else month_start.replace(month=month_start.month + 1)
+    )
+    return render_template(
+        "workspace.html",
+        page="calendar",
+        calendar_articles=pending,
+        calendar_days=calendar_days,
+        calendar_weekdays=("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"),
+        calendar_month_label=month_start.strftime("%B %Y"),
+        calendar_previous_month=previous_month.strftime("%Y-%m"),
+        calendar_next_month=next_month.strftime("%Y-%m"),
+        calendar_today_url=url_for("calendar", month=today.strftime("%Y-%m"), day=today.isoformat()),
+        calendar_selected_date=selected_date.isoformat(),
+        calendar_selected_label=selected_date.strftime("%A, %B %-d, %Y") if os.name != "nt" else selected_date.strftime("%A, %B %#d, %Y"),
+        calendar_selected_events=selected_events,
+        calendar_month_days=days_in_month,
+    )
 
 
 @app.route("/admin/backup")
@@ -1944,81 +3564,9 @@ def admin_backup():
 
 @app.route("/submit", methods=["GET", "POST"])
 def submit_article():
-    if request.method == "POST":
-        if request.form.get("company_website", "").strip():
-            flash("Article sent for review. It is not public yet.", "success")
-            return redirect(url_for("submit_article"))
-        started_at = session.pop("submission_started_at", 0)
-        elapsed = datetime.now().timestamp() - started_at if isinstance(started_at, (int, float)) else 0
-        if elapsed < 3 or elapsed > 86400:
-            flash("Please reload the form and try again.", "error")
-            return redirect(url_for("submit_article"))
-        title = request.form.get("title", "").strip()
-        author = request.form.get("author", "").strip()
-        contributor_email = request.form.get("contributor_email", "").strip().casefold()
-        keyword = request.form.get("keyword", "").strip()
-        meta_title = request.form.get("meta_title", "").strip()
-        meta_description = request.form.get("meta_description", "").strip()
-        content = request.form.get("content", "").strip()
-        original_url = request.form.get("original_url", "").strip()
-        canonical_to_original = request.form.get("canonical_to_original") == "on"
-        if not title or len(title) > 180 or not content or len(content) > 100000:
-            flash("Add a title (up to 180 characters) and article text (up to 100,000 characters).", "error")
-            return redirect(url_for("submit_article"))
-        if (len(author) > 100 or len(contributor_email) > 254 or len(keyword) > 160
-            or len(meta_title) > 60 or len(meta_description) > 155 or len(original_url) > 2000):
-            flash("Check the author, keyword, and SEO metadata character limits.", "error")
-            return redirect(url_for("submit_article"))
-        if (not re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", contributor_email)
-                or request.form.get("rights_confirmed") != "on"):
-            flash("Enter a valid contact email and confirm that you have reprint rights.", "error")
-            return redirect(url_for("submit_article"))
-        if original_url and not is_safe_external_url(original_url):
-            flash("The original article URL must use HTTP or HTTPS.", "error")
-            return redirect(url_for("submit_article"))
-        if canonical_to_original and not original_url:
-            flash("Add the original article URL before requesting an original canonical.", "error")
-            return redirect(url_for("submit_article"))
-        if not reserve_submission_slot(contributor_email):
-            flash("This email has reached the submission limit. Try again later.", "error")
-            return redirect(url_for("submit_article"))
-        try:
-            article_html = clean_submitted_content(content)
-            if not engine.article_text(article_html):
-                flash("Add readable article text before submitting.", "error")
-                return redirect(url_for("submit_article"))
-            record = {
-                "id": uuid.uuid4().hex,
-                "article_title": title,
-                "meta_title": title[:60],
-                "meta_description": (re.sub(r"\s+", " ", engine.article_text(article_html)).strip()[:155]),
-                "article_html": article_html,
-                "keyword": keyword,
-                "author": author or "Client submission",
-                "contributor_email": contributor_email,
-                "niche": current_niche(),
-                "topic_cluster": topic_cluster_for_keyword(current_niche(), keyword),
-                "created_at": datetime.now().astimezone().isoformat(timespec="minutes"),
-                "status": "Pending Review",
-                "source": "Client submission",
-                "reprint_permission_at": datetime.now().astimezone().isoformat(timespec="minutes"),
-                "reprint_terms_version": REPRINT_TERMS_VERSION,
-                "original_url": original_url,
-                "canonical_to_original": canonical_to_original,
-            }
-            if meta_title:
-                record["meta_title"] = meta_title
-            if meta_description:
-                record["meta_description"] = meta_description
-            save_article(record)
-            flash("Article sent for review. It is not public yet.", "success")
-            return redirect(url_for("submit_article"))
-        except Exception:
-            app.logger.exception("Could not save client article submission")
-            flash("Could not save the submission right now. Please try again later.", "error")
-    else:
-        session["submission_started_at"] = datetime.now().timestamp()
-    return render_template("workspace.html", page="submit")
+    if signed_in_client() is not None:
+        return redirect(url_for("client_article_new"))
+    return redirect(url_for("client_signup"))
 
 
 @app.route("/keywords", methods=["GET", "POST"])
@@ -2105,6 +3653,50 @@ def articles():
     return render_template("workspace.html", page="articles", articles=records, suggestions=suggestions)
 
 
+@app.route("/images")
+def image_library():
+    records = sorted(
+        articles_for_niche(current_niche()),
+        key=lambda item: item.get("created_at", ""),
+        reverse=True,
+    )
+    for index, article in enumerate(records):
+        article["display_cover_image_url"] = article_cover_image(article, index)
+        article["has_cover_image_alt"] = bool(
+            isinstance(article.get("cover_image_alt"), str)
+            and article["cover_image_alt"].strip()
+        )
+    return render_template(
+        "workspace.html",
+        page="images",
+        image_articles=records,
+        missing_alt_count=sum(not item["has_cover_image_alt"] for item in records),
+    )
+
+
+@app.route("/images/check", methods=["POST"])
+def check_site_links():
+    report = run_site_link_check(request.host, request.scheme)
+    records = sorted(
+        articles_for_niche(current_niche()),
+        key=lambda item: item.get("created_at", ""),
+        reverse=True,
+    )
+    for index, article in enumerate(records):
+        article["display_cover_image_url"] = article_cover_image(article, index)
+        article["has_cover_image_alt"] = bool(
+            isinstance(article.get("cover_image_alt"), str)
+            and article["cover_image_alt"].strip()
+        )
+    return render_template(
+        "workspace.html",
+        page="images",
+        image_articles=records,
+        missing_alt_count=sum(not item["has_cover_image_alt"] for item in records),
+        link_check_report=report,
+    )
+
+
 @app.route("/articles/auto", methods=["POST"])
 def auto_article():
     niche = current_niche()
@@ -2154,15 +3746,42 @@ def article_detail(article_id):
     article["article_html"] = remove_body_h1(article.get("article_html", ""))
     article["sources"] = safe_article_sources(article.get("sources", []))
     article["original_url"] = article.get("original_url", "") if is_safe_external_url(article.get("original_url")) else ""
+    article["client_website_url"] = (
+        article.get("client_website_url", "")
+        if is_safe_external_url(article.get("client_website_url"))
+        else ""
+    )
     if request.method == "POST":
         if request.form.get("action") == "update_cover_image":
             cover_image_url = request.form.get("cover_image_url", "").strip()
-            if len(cover_image_url) > 2000 or (cover_image_url and not is_safe_image_url(cover_image_url)):
-                flash("Use an HTTPS image URL up to 2,000 characters, or leave it blank to use the site default.", "error")
+            cover_image_alt = request.form.get("cover_image_alt", "").strip()
+            upload = request.files.get("cover_image")
+            if len(cover_image_url) > 2000 or len(cover_image_alt) > 200:
+                flash("Keep the image URL under 2,000 characters and alt text under 200 characters.", "error")
+                return redirect(url_for("article_detail", article_id=article_id))
+            if upload and upload.filename:
+                try:
+                    optimized_url, original_size, optimized_size = optimize_uploaded_image(upload)
+                except ValueError as exc:
+                    flash(str(exc), "error")
+                    return redirect(url_for("article_detail", article_id=article_id))
+                article["cover_image_url"] = optimized_url
+                article["cover_image_alt"] = cover_image_alt
+                clear_scheduled_publication(article)
+                save_article(article)
+                flash(
+                    f"Image optimized and saved as WebP ({original_size // 1024} KB to {optimized_size // 1024} KB).",
+                    "success",
+                )
+                return redirect(url_for("article_detail", article_id=article_id))
+            if cover_image_url and not is_safe_article_image_url(cover_image_url):
+                flash("Use an HTTPS image URL or leave it blank to use the site default.", "error")
                 return redirect(url_for("article_detail", article_id=article_id))
             article["cover_image_url"] = cover_image_url
+            article["cover_image_alt"] = cover_image_alt
+            clear_scheduled_publication(article)
             save_article(article)
-            flash("Article cover image saved.", "success")
+            flash("Article cover image and alt text saved.", "success")
             return redirect(url_for("article_detail", article_id=article_id))
         if article.get("status") not in {"Draft", "Pending Review"}:
             flash("Only unpublished articles can be edited.", "error")
@@ -2186,8 +3805,9 @@ def article_detail(article_id):
         article["keyword"] = keyword
         article["original_url"] = original_url
         article["canonical_to_original"] = canonical_to_original
+        clear_scheduled_publication(article)
         save_article(article)
-        flash("SEO details saved. Review the checklist before publishing.", "success")
+        flash("SEO details saved. Any scheduled publication was cancelled; review and approve the updated article again.", "success")
         return redirect(url_for("article_detail", article_id=article_id))
     article["display_cover_image_url"] = article_cover_image(article)
     return render_template("workspace.html", page="article_detail", article=article, seo_checks=article_seo_checks(article))
@@ -2203,17 +3823,20 @@ def publish(article_id):
     if article.get("status") not in {"Draft", "Pending Review"}:
         flash("Only drafts and reviewed submissions can be published.", "error")
         return redirect(url_for("article_detail", article_id=article_id))
-    article["topic_cluster"] = article.get("topic_cluster") or topic_cluster_for_keyword(
-        article.get("niche", ""), article.get("keyword", "")
+    sent, failed = publish_article_record(
+        article,
+        records,
+        session.get("admin_username", "Site editor"),
     )
-    article["slug"] = article_slug(article.get("article_title", "article"), records)
-    now = datetime.now().astimezone().isoformat(timespec="minutes")
-    article["status"] = "Published"
-    article["published_at"] = now
-    article["editorial_reviewed_at"] = now
-    article["editorial_reviewed_by"] = session.get("admin_username", "Site editor")
-    save_article(article)
-    flash("Article is now live on your blog.", "success")
+    if failed:
+        flash(
+            f"Article is live, but newsletter delivery failed for {failed} subscriber(s). Check SMTP settings and server logs.",
+            "error",
+        )
+    elif sent:
+        flash(f"Article is live. Newsletter sent to {sent} confirmed subscriber(s).", "success")
+    else:
+        flash("Article is now live on your blog. No confirmed newsletter subscribers were available.", "success")
     return redirect(url_for("article_detail", article_id=article_id))
 
 
@@ -2229,6 +3852,8 @@ def public_blog():
             article.get("niche", ""), article.get("keyword", "")
         )
         article["cover_image_url"] = article_cover_image(article, index)
+        article["reading_time_minutes"] = article_reading_minutes(article)
+    popular_articles = most_read_articles(articles)
     canonical = canonical_url("public_blog")
     site_settings = load_site_settings()
     schema = {
@@ -2239,7 +3864,29 @@ def public_blog():
         "description": site_settings["site_description"],
         "image": articles[0]["cover_image_url"] if articles else None,
     }
-    return render_template("blog.html", articles=articles, canonical=canonical, schema=schema)
+    return render_template(
+        "blog.html",
+        articles=articles,
+        popular_articles=popular_articles,
+        canonical=canonical,
+        schema=schema,
+    )
+
+
+@app.route("/saved")
+def saved_articles():
+    articles = [
+        item for item in articles_for_site_profile()
+        if item.get("status") == "Published" and item.get("slug")
+    ]
+    articles.sort(key=lambda item: item.get("published_at", item.get("created_at", "")), reverse=True)
+    for index, article in enumerate(articles):
+        article["topic_cluster"] = article.get("topic_cluster") or topic_cluster_for_keyword(
+            article.get("niche", ""), article.get("keyword", "")
+        )
+        article["cover_image_url"] = article_cover_image(article, index)
+        article["reading_time_minutes"] = article_reading_minutes(article)
+    return render_template("saved_articles.html", articles=articles)
 
 
 @app.route("/blog/<slug>")
@@ -2250,6 +3897,23 @@ def public_article(slug):
         None,
     )
     if article is None:
+        unpublished_article = next(
+            (item for item in articles if item.get("status") != "Published" and item.get("slug") == slug),
+            None,
+        )
+        title = str((unpublished_article or {}).get("article_title", "")).strip().casefold()
+        if title:
+            replacement = next(
+                (
+                    item for item in articles
+                    if item.get("status") == "Published"
+                    and item.get("slug") != slug
+                    and str(item.get("article_title", "")).strip().casefold() == title
+                ),
+                None,
+            )
+            if replacement:
+                return redirect(url_for("public_article", slug=replacement["slug"]), code=301)
         return render_template("blog_article.html", article=None), 404
     article_index = next(
         (index for index, item in enumerate(articles) if item.get("slug") == slug),
@@ -2259,9 +3923,15 @@ def public_article(slug):
     article["article_html"] = remove_body_h1(article.get("article_html", ""))
     article["sources"] = safe_article_sources(article.get("sources", []))
     article["original_url"] = article.get("original_url", "") if is_safe_external_url(article.get("original_url")) else ""
+    article["client_website_url"] = (
+        article.get("client_website_url", "")
+        if is_safe_external_url(article.get("client_website_url"))
+        else ""
+    )
     article["topic_cluster"] = article.get("topic_cluster") or topic_cluster_for_keyword(
         article.get("niche", ""), article.get("keyword", "")
     )
+    article["reading_time_minutes"] = article_reading_minutes(article)
     article["author"] = article.get("author") or os.getenv(
         "EDITORIAL_TEAM_NAME", "Urban Nest Interiors Editorial Team"
     ).strip() or "Urban Nest Interiors Editorial Team"
@@ -2270,11 +3940,15 @@ def public_article(slug):
     schema = build_article_schema(article, canonical)
     related = related_articles(article, articles)
     for related_index, related_article in enumerate(related):
+        related_article["topic_cluster"] = topic_cluster_for_keyword(
+            related_article.get("niche", ""), related_article.get("keyword", "")
+        ) or related_article.get("topic_cluster")
         source_index = next(
             (index for index, item in enumerate(articles) if item.get("slug") == related_article.get("slug")),
             related_index,
         )
         related_article["cover_image_url"] = article_cover_image(related_article, source_index)
+        related_article["reading_time_minutes"] = article_reading_minutes(related_article)
     article_gallery_images = [article["cover_image_url"]]
     for related_article in related:
         image_url = related_article["cover_image_url"]
@@ -2317,28 +3991,48 @@ def sitemap_xml():
     ET.register_namespace("", namespace)
     root = ET.Element(f"{{{namespace}}}urlset")
     urls = [
-        canonical_url("home"),
-        canonical_url("public_blog"),
-        canonical_url("about_page"),
-        canonical_url("contact_page"),
-        canonical_url("privacy_page"),
-        canonical_url("editorial_policy_page"),
+        (canonical_url("home"), None),
+        (canonical_url("public_blog"), None),
+        (canonical_url("about_page"), None),
+        (canonical_url("contact_page"), None),
+        (canonical_url("privacy_page"), None),
+        (canonical_url("editorial_policy_page"), None),
     ]
-    urls.extend(canonical_url("public_site_page", slug=item["slug"]) for item in list_site_pages())
+    urls.extend(
+        (
+            canonical_url("public_site_page", slug=item["slug"]),
+            sitemap_last_modified(item.get("updated_at")),
+        )
+        for item in list_site_pages()
+    )
     articles = [
         item for item in articles_for_site_profile()
         if item.get("status") == "Published" and item.get("slug")
     ]
     urls.extend(
-        article_canonical_url(item, slug=item["slug"])
+        (
+            article_canonical_url(item, slug=item["slug"]),
+            sitemap_last_modified(item.get("updated_at") or item.get("published_at") or item.get("created_at")),
+        )
         for item in articles
         if not uses_external_canonical(item)
     )
-    for location in urls:
+    for location, last_modified in urls:
         item = ET.SubElement(root, f"{{{namespace}}}url")
         ET.SubElement(item, f"{{{namespace}}}loc").text = location
+        if last_modified:
+            ET.SubElement(item, f"{{{namespace}}}lastmod").text = last_modified
     content = ET.tostring(root, encoding="utf-8", xml_declaration=True)
     return Response(content, content_type="application/xml; charset=utf-8")
+
+
+def sitemap_last_modified(value):
+    if not isinstance(value, str) or not value.strip():
+        return None
+    try:
+        return datetime.fromisoformat(value.strip().replace("Z", "+00:00")).date().isoformat()
+    except ValueError:
+        return None
 
 
 @app.route("/feed.xml")

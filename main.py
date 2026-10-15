@@ -386,8 +386,8 @@ def validate_article(article, keyword):
     if keyword.casefold() not in first_100_words.casefold():
         raise RuntimeError("The keyword must appear in the first 100 body words.")
     occurrences = keyword_occurrences(text, keyword)
-    if not 2 <= occurrences <= 5:
-        raise RuntimeError(f"The keyword appears {occurrences} times in the body; expected 2-5.")
+    if occurrences < 1:
+        raise RuntimeError(f"The keyword appears {occurrences} times in the body; expected at least 1.")
 
 
 def publish_article(site_url, token, article):

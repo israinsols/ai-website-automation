@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{% if page == 'signup' %}Create client account{% else %}Client sign in{% endif %} | {{ site_name }}</title>
+    <meta name="robots" content="noindex,nofollow">
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+  </head>
+  <body class="workspace-body login-body">
+    <main class="login-panel">
+      <a class="workspace-brand" href="{{ url_for('home') }}"><span class="brand-mark">{{ site_name[:1] }}</span><span>{{ site_name }}<small>CLIENT PORTAL</small></span></a>
+      <p class="eyebrow">CLIENT ACCOUNT</p>
+      <h1>{% if page == 'signup' %}Create your account.{% else %}Sign in to your drafts.{% endif %}</h1>
+      {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}<div class="flash-stack">{% for category, message in messages %}<div class="flash flash-{{ category }}">{{ message }}</div>{% endfor %}</div>{% endif %}
+      {% endwith %}
+      <form class="login-form" method="post">
+        <input type="hidden" name="_csrf_token" value="{{ csrf_token }}">
+        {% if page == 'signup' %}
+          <label for="display-name">Your name</label><input id="display-name" name="display_name" maxlength="100" autocomplete="name" required>
+        {% endif %}
+        <label for="email">Email</label><input id="email" name="email" type="email" maxlength="254" autocomplete="email" required>
+        <label for="password">Password</label><input id="password" name="password" type="password" minlength="12" maxlength="256" autocomplete="{% if page == 'signup' %}new-password{% else %}current-password{% endif %}" required>
+        {% if page == 'signup' %}<label for="confirm-password">Confirm password</label><input id="confirm-password" name="confirm_password" type="password" minlength="12" maxlength="256" autocomplete="new-password" required>{% endif %}
+        <button class="button button-primary" type="submit">{% if page == 'signup' %}Create account{% else %}Sign in{% endif %} <span aria-hidden="true">→</span></button>
+      </form>
+      <p class="form-note">{% if page == 'signup' %}Already have an account? <a href="{{ url_for('client_login') }}">Sign in</a>.{% else %}New here? <a href="{{ url_for('client_signup') }}">Create a client account</a>.{% endif %}</p>
+      <p class="form-note"><a href="{{ url_for('home') }}">← Back to {{ site_name }}</a></p>
+    </main>
+  </body>
+</html>
