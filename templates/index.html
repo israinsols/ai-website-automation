@@ -57,7 +57,7 @@
           </div>
           <div class="hero-card">
             <div class="hero-image-wrap">
-              <img class="hero-image" src="{{ hero_image_url }}" alt="{{ hero_image_alt }}" fetchpriority="high">
+              <img class="hero-image" src="{{ hero_image_url }}" alt="{{ hero_image_alt }}" decoding="async" fetchpriority="high">
               <span class="hero-image-tag">{% if selected_niche == 'tech' %}THE MODERN WORKSPACE{% else %}A MORE THOUGHTFUL HOME{% endif %}</span>
               <span class="hero-image-mark" aria-hidden="true">↗</span>
             </div>
@@ -79,7 +79,7 @@
           <div class="visual-gallery">
             {% for visual in site_showcase %}
             <article class="visual-card visual-card-{{ loop.index }}">
-              <img src="{{ visual.image_url }}" alt="{{ visual.title }}" loading="lazy">
+              <img src="{{ visual.image_url }}" alt="{{ visual.title }}" loading="lazy" decoding="async" fetchpriority="low">
               <div class="visual-card-copy"><p>{{ visual.label }}</p><h3>{{ visual.title }}</h3></div>
               <span class="visual-card-number" aria-hidden="true">0{{ loop.index }}</span>
             </article>
@@ -100,7 +100,7 @@
           </div>
           {% if editor_pick %}
           <article class="home-editor-pick home-journal-card" data-story-card data-category="{{ editor_pick.topic_cluster }}" data-search="{{ editor_pick.keyword }} {{ editor_pick.topic_cluster }} {{ editor_pick.article_title }} {{ editor_pick.meta_description }}">
-            <a class="home-editor-pick-image" href="{{ url_for('public_article', slug=editor_pick.slug) }}"><img src="{{ editor_pick.cover_image_url }}" alt="{{ editor_pick.article_title }}" fetchpriority="high"></a>
+            <a class="home-editor-pick-image" href="{{ url_for('public_article', slug=editor_pick.slug) }}"><img src="{{ editor_pick.cover_image_url }}" alt="{{ editor_pick.article_title }}" loading="lazy" decoding="async" fetchpriority="low"></a>
             <div class="home-editor-pick-copy">
               <p class="eyebrow">{% if selected_niche == 'tech' %}EDITOR’S PICK · {{ editor_pick.topic_cluster }}{% else %}THE EDITOR’S PICK · {{ editor_pick.topic_cluster }}{% endif %} · {{ editor_pick.reading_time_minutes }} MIN READ</p>
               <h3><a href="{{ url_for('public_article', slug=editor_pick.slug) }}">{{ editor_pick.article_title }}</a></h3>
@@ -126,7 +126,7 @@
           <div class="home-journal-grid">
             {% for article in journal_articles %}
             <article class="home-journal-card" data-story-card data-category="{{ article.topic_cluster }}" data-search="{{ article.keyword }} {{ article.topic_cluster }} {{ article.article_title }} {{ article.meta_description }}">
-              <a class="home-journal-image" href="{{ url_for('public_article', slug=article.slug) }}"><img src="{{ article.cover_image_url }}" alt="{{ article.cover_image_alt or article.article_title }}" loading="lazy"></a>
+              <a class="home-journal-image" href="{{ url_for('public_article', slug=article.slug) }}"><img src="{{ article.cover_image_url }}" alt="{{ article.cover_image_alt or article.article_title }}" loading="lazy" decoding="async" fetchpriority="low"></a>
               <div class="home-journal-copy">
                 <p class="eyebrow">{{ article.topic_cluster }} <span aria-hidden="true">·</span> {{ (article.published_at or article.created_at)[:10] }} <span aria-hidden="true">·</span> {{ article.reading_time_minutes }} min read</p>
                 <h3><a href="{{ url_for('public_article', slug=article.slug) }}">{{ article.article_title }}</a></h3>
@@ -151,7 +151,7 @@
           <div class="home-journal-grid">
             {% for article in more_journal_articles %}
             <article class="home-journal-card" data-story-card data-load-more-card data-category="{{ article.topic_cluster }}" data-search="{{ article.keyword }} {{ article.topic_cluster }} {{ article.article_title }} {{ article.meta_description }}"{% if loop.index > 3 %} hidden{% endif %}>
-              <a class="home-journal-image" href="{{ url_for('public_article', slug=article.slug) }}"><img src="{{ article.cover_image_url }}" alt="{{ article.cover_image_alt or article.article_title }}" loading="lazy"></a>
+              <a class="home-journal-image" href="{{ url_for('public_article', slug=article.slug) }}"><img src="{{ article.cover_image_url }}" alt="{{ article.cover_image_alt or article.article_title }}" loading="lazy" decoding="async" fetchpriority="low"></a>
               <div class="home-journal-copy">
                 <p class="eyebrow">{{ article.topic_cluster }} <span aria-hidden="true">·</span> {{ (article.published_at or article.created_at)[:10] }} <span aria-hidden="true">·</span> {{ article.reading_time_minutes }} min read</p>
                 <h3><a href="{{ url_for('public_article', slug=article.slug) }}">{{ article.article_title }}</a></h3>
@@ -181,7 +181,7 @@
           <div class="home-journal-grid">
             {% for article in popular_articles %}
             <article class="home-journal-card">
-              <a class="home-journal-image" href="{{ url_for('public_article', slug=article.slug) }}"><img src="{{ article.cover_image_url }}" alt="{{ article.cover_image_alt or article.article_title }}" loading="lazy"></a>
+              <a class="home-journal-image" href="{{ url_for('public_article', slug=article.slug) }}"><img src="{{ article.cover_image_url }}" alt="{{ article.cover_image_alt or article.article_title }}" loading="lazy" decoding="async" fetchpriority="low"></a>
               <div class="home-journal-copy">
                 <p class="eyebrow">{{ article.topic_cluster }} <span aria-hidden="true">·</span> {{ article.view_count }} {{ "read" if article.view_count == 1 else "reads" }} <span aria-hidden="true">·</span> {{ article.reading_time_minutes }} min read</p>
                 <h3><a href="{{ url_for('public_article', slug=article.slug) }}">{{ article.article_title }}</a></h3>

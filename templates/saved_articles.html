@@ -23,7 +23,7 @@
       <div class="related-post-grid saved-stories-grid">
         {% for article in articles %}
         <article data-saved-card data-saved-slug="{{ article.slug }}" hidden>
-          <a class="related-post-image" href="{{ url_for('public_article', slug=article.slug) }}"><img src="{{ article.cover_image_url }}" alt="{{ article.cover_image_alt or article.article_title }}" loading="lazy"></a>
+          <a class="related-post-image" href="{{ url_for('public_article', slug=article.slug) }}"><img src="{{ article.cover_image_url }}" alt="{{ article.cover_image_alt or article.article_title }}" loading="lazy" decoding="async" fetchpriority="low"></a>
           <div class="related-post-body">
             <p class="eyebrow">{{ article.topic_cluster }} · {{ article.reading_time_minutes }} min read</p>
             <h2><a href="{{ url_for('public_article', slug=article.slug) }}">{{ article.article_title }}</a></h2>

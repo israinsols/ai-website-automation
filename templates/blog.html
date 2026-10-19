@@ -46,7 +46,7 @@
             {% for article in articles[:4] %}
               <article class="blog-feature-card {% if loop.first %}blog-feature-main{% else %}blog-feature-small{% endif %}" data-journal-card data-search="{{ [article.article_title, article.topic_cluster or article.niche, article.meta_description] | join(' ') }}">
                 <a class="blog-feature-image" href="{{ url_for('public_article', slug=article.slug) }}" aria-label="Read {{ article.article_title }}">
-                  <img src="{{ article.cover_image_url }}" alt="{{ article.cover_image_alt or article.article_title }}" loading="{% if loop.first %}eager{% else %}lazy{% endif %}" fetchpriority="{% if loop.first %}high{% else %}auto{% endif %}">
+                  <img src="{{ article.cover_image_url }}" alt="{{ article.cover_image_alt or article.article_title }}" loading="{% if loop.first %}eager{% else %}lazy{% endif %}" decoding="async" fetchpriority="{% if loop.first %}high{% else %}low{% endif %}">
                   <span class="blog-feature-label">{{ article.topic_cluster or article.niche }}</span>
                   <span class="blog-feature-copy"><strong>{{ article.article_title }}</strong><small>{{ (article.published_at or article.created_at)[:10] }} · {{ article.reading_time_minutes }} min read · Read story <span aria-hidden="true">→</span></small></span>
                 </a>

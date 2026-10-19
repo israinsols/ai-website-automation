@@ -19,7 +19,7 @@
           <section class="article-magazine-feature">
             <div class="article-photo-collage" aria-label="Article photography">
               {% for image_url in article_gallery_images %}
-                <img src="{{ image_url }}" alt="{% if loop.first %}{{ article.cover_image_alt or article.article_title }}{% else %}{{ site_name }} {{ article.topic_cluster or article.niche }} inspiration{% endif %}" loading="eager"{% if loop.first %} fetchpriority="high"{% endif %}>
+                <img src="{{ image_url }}" alt="{% if loop.first %}{{ article.cover_image_alt or article.article_title }}{% else %}{{ site_name }} {{ article.topic_cluster or article.niche }} inspiration{% endif %}" loading="{% if loop.first %}eager{% else %}lazy{% endif %}" decoding="async" fetchpriority="{% if loop.first %}high{% else %}low{% endif %}">
               {% endfor %}
             </div>
             <div class="article-magazine-story">
