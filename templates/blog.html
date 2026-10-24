@@ -23,7 +23,7 @@
     <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
   </head>
   <body class="public-blog {{ site_profile_class }}" style="--primary: {{ site_theme.primary }}; --primary-dark: {{ site_theme.primary }}; --bg: {{ site_theme.background }};">
-    <header class="topbar"><div class="container nav"><a class="brand" href="{{ url_for('home') }}">{{ site_name }}</a><button class="site-menu-toggle" type="button" data-menu-toggle aria-expanded="false" aria-controls="site-navigation"><span class="visually-hidden">Open navigation menu</span><span class="site-menu-icon" aria-hidden="true"></span></button><nav id="site-navigation" class="site-navigation" aria-label="Main navigation"><a href="{{ url_for('saved_articles') }}">Saved stories</a>{% for item in site_navigation %}<a href="{{ item.url }}"{% if item.url.startswith('http') %} target="_blank" rel="noopener noreferrer"{% endif %}>{{ item.label }}</a>{% endfor %}</nav></div></header>
+    <header class="topbar"><div class="container nav"><a class="brand" href="{{ url_for('home') }}">{% if site_logo_url %}<img class="brand-logo" src="{{ site_logo_url }}" alt="Urban Decor Styles">{% else %}{{ site_name }}{% endif %}</a><button class="site-menu-toggle" type="button" data-menu-toggle aria-expanded="false" aria-controls="site-navigation"><span class="visually-hidden">Open navigation menu</span><span class="site-menu-icon" aria-hidden="true"></span></button><nav id="site-navigation" class="site-navigation" aria-label="Main navigation"><a href="{{ url_for('saved_articles') }}">Saved stories</a>{% for item in site_navigation %}<a href="{{ item.url }}"{% if item.url.startswith('http') %} target="_blank" rel="noopener noreferrer"{% endif %}>{{ item.label }}</a>{% endfor %}</nav></div></header>
     <main class="container blog-main">
       <header class="journal-masthead">
         <div class="journal-title-row"><div><p class="eyebrow">{{ site_eyebrow }}</p><h1>{{ site_name }} Journal</h1></div><p class="blog-lead">{{ site_tagline }}</p></div>
@@ -63,7 +63,7 @@
       {% else %}<section class="empty-state blog-empty"><h2>The journal is getting ready.</h2><p>Published articles will appear here.</p></section>{% endif %}
       {% if newsletter_enabled %}{% with newsletter_return_to=url_for('public_blog') %}{% include "newsletter_signup.html" %}{% endwith %}{% endif %}
     </main>
-    <footer class="public-footer"><div class="container"><a href="{{ url_for('about_page') }}">About</a><a href="{{ url_for('contact_page') }}">Contact</a><a href="{{ url_for('editorial_policy_page') }}">Editorial policy</a><a href="{{ url_for('privacy_page') }}">Privacy</a></div></footer>
+    <footer class="public-footer"><div class="container">{% if site_logo_url %}<a class="public-footer-logo" href="{{ url_for('home') }}" aria-label="Urban Decor Styles home"><img src="{{ site_logo_url }}" alt="Urban Decor Styles"></a>{% endif %}<a href="{{ url_for('about_page') }}">About</a><a href="{{ url_for('contact_page') }}">Contact</a><a href="{{ url_for('editorial_policy_page') }}">Editorial policy</a><a href="{{ url_for('privacy_page') }}">Privacy</a></div></footer>
     <script src="{{ url_for('static', filename='public.js') }}" defer></script>
   </body>
 </html>

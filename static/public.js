@@ -1,5 +1,31 @@
 (() => {
   const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const articleContent = document.querySelector("[data-reading-content]");
+  const readingProgress = document.querySelector("[data-reading-progress]");
+  if (articleContent && readingProgress) {
+    const progressFill = readingProgress.firstElementChild;
+    let progressFramePending = false;
+
+    const updateReadingProgress = () => {
+      progressFramePending = false;
+      const articleTop = articleContent.getBoundingClientRect().top + window.scrollY;
+      const scrollRange = Math.max(1, articleContent.scrollHeight - window.innerHeight);
+      const progress = Math.min(1, Math.max(0, (window.scrollY - articleTop) / scrollRange));
+      progressFill.style.transform = `scaleX(${progress})`;
+    };
+
+    const scheduleReadingProgress = () => {
+      if (progressFramePending) return;
+      progressFramePending = true;
+      window.requestAnimationFrame(updateReadingProgress);
+    };
+
+    readingProgress.hidden = false;
+    updateReadingProgress();
+    window.addEventListener("scroll", scheduleReadingProgress, { passive: true });
+    window.addEventListener("resize", scheduleReadingProgress);
+  }
+
   if (!reduceMotion && "IntersectionObserver" in window) {
     const elements = document.querySelectorAll(
       ".section-heading, .cards > *, .pricing > *, .topic-list > *, .cta-box, .newsletter-box, " +
@@ -56,7 +82,8 @@
   });
 
   const storySearch = document.querySelector("[data-story-search]");
-  if (storySearch) {
+
+   if (storySearch) {
     const storyCards = [...document.querySelectorAll("[data-story-card]")];
     const moreCards = storyCards.filter((card) => card.hasAttribute("data-load-more-card"));
     const emptyMessage = document.querySelector("[data-story-search-empty]");

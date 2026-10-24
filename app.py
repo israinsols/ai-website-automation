@@ -98,7 +98,7 @@ DEFAULT_SITE_SETTINGS = {
         {"label": "Topics", "url": "/#topics"},
         {"label": "Plans", "url": "/#plans"},
         {"label": "Blogs", "url": "/blog"},
-        {"label": "Submit Article", "url": "/submit"},
+        {"label": "Write for Us", "url": "/write-for-us"},
         {"label": "About", "url": "/about"},
         {"label": "Contact", "url": "/contact"},
     ],
@@ -2123,6 +2123,31 @@ def remove_body_h1(value):
     return re.sub(r"<h1\b[^>]*>.*?</h1\s*>", "", value, count=1, flags=re.IGNORECASE | re.DOTALL)
 
 
+def add_article_table_of_contents(article_html):
+    headings = []
+    used_ids = set()
+
+    def add_heading_id(match):
+        heading_text = engine.article_text(match.group(1)).strip()
+        base_id = re.sub(r"[^a-z0-9]+", "-", heading_text.casefold()).strip("-") or "section"
+        heading_id = base_id
+        suffix = 2
+        while heading_id in used_ids:
+            heading_id = f"{base_id}-{suffix}"
+            suffix += 1
+        used_ids.add(heading_id)
+        headings.append({"id": heading_id, "title": heading_text})
+        return f'<h2 id="{html.escape(heading_id, quote=True)}">{match.group(1)}</h2>'
+
+    updated_html = re.sub(
+        r"<h2\b[^>]*>(.*?)</h2\s*>",
+        add_heading_id,
+        article_html,
+        flags=re.IGNORECASE | re.DOTALL,
+    )
+    return (updated_html, headings) if len(headings) >= 3 else (article_html, [])
+
+
 def article_seo_checks(article):
     keyword = article.get("keyword", "").strip()
     article_html = article.get("article_html", "")
@@ -2201,16 +2226,31 @@ def workspace_context():
             theme_background = "#f5f1e8"
     cover_images = DEFAULT_ARTICLE_COVERS.get(niche, DEFAULT_ARTICLE_COVERS["home-decor"])
     showcase_copy = SITE_SHOWCASE_COPY.get(niche, SITE_SHOWCASE_COPY["home-decor"])
+    site_navigation = []
+    for item in settings["navigation"]:
+        if item["url"] == "/submit":
+            item = {"label": "Write for Us", "url": "/write-for-us"}
+        if item["url"] != "/write-for-us" or not any(
+            link["url"] == "/write-for-us" for link in site_navigation
+        ):
+            site_navigation.append(item)
+    if not any(item["url"] == "/write-for-us" for item in site_navigation):
+        site_navigation.append({"label": "Write for Us", "url": "/write-for-us"})
     return {
         "selected_niche": niche,
         "current_year": datetime.now().year,
         "site_profile_class": f"public-profile-{niche.replace('_', '-')}",
         "site_name": settings["site_name"],
+        "site_logo_url": (
+            url_for("static", filename="urban-decor-styles-logo.png")
+            if niche == "home-decor"
+            else ""
+        ),
         "site_description": settings["site_description"],
         "site_tagline": settings["site_tagline"],
         "site_eyebrow": settings["site_eyebrow"],
         "site_headline": settings["headline"],
-        "site_navigation": settings["navigation"],
+        "site_navigation": site_navigation,
         "site_theme": {
             "primary": theme_primary,
             "background": theme_background,
@@ -2334,13 +2374,13 @@ INFO_PAGES = {
         "description": SITE_DESCRIPTION,
         "sections": [
             ("What we cover", "Useful, clear guidance built around the site's active niche and its readers' real questions."),
-            ("How we work", "We aim to publish original, useful guidance. Articles submitted by client accounts are reviewed by the editorial team and published only after approval."),
+            ("How we work", "We aim to publish original, useful guidance. Guest articles sent by email are reviewed by the editorial team and only published after approval."),
         ],
     },
     "contact": {
         "eyebrow": "CONTACT",
         "title": "Talk to the editorial team.",
-        "description": "Send an editorial question, correction, or relevant home-decor article proposal.",
+        "description": "Send an editorial question, correction, or guest article proposal.",
         "sections": [("Article proposals", "Include a short summary, your intended audience, and any sources or image permissions relevant to the article.")],
     },
     "privacy": {
@@ -2348,7 +2388,7 @@ INFO_PAGES = {
         "title": "Your information and submitted content.",
         "description": "This page describes the current local prototype and must be reviewed before a public launch.",
         "sections": [
-            ("Article submissions", "Client account names, contact emails, article text, source URLs, and reprint-permission records are stored in SQLite and included in database backups. Client contact emails are used to notify clients when articles are published; the editorial team is notified when a submission enters review. Articles remain private until an admin approves publication. Contact the site owner for access, correction, or removal requests."),
+            ("Guest article submissions", "Guest pitches and article drafts are sent to the editorial email address configured for this site. The website does not collect guest article submissions through an account or form. If the editorial team publishes an article, its content becomes public. Older client-account submission records may remain in the site's SQLite database and backups; contact the site owner for access, correction, or removal requests."),
             ("Newsletter", "If newsletter signup is enabled, your email address is stored in this site's SQLite database while your confirmation is pending or you remain subscribed. Signup requires email confirmation. Confirmed subscribers receive an email when a new article is published. Each email includes an unsubscribe link; you can also contact the site owner to request removal."),
             ("Abuse prevention", "A keyed hash of a submitter email is used for a short-term submission limit; expired hashes are pruned when a later submission is processed. The site does not store visitor IP addresses for this purpose."),
             ("Traffic reporting", "The workspace stores daily aggregate page-view counts by public page. It does not store IP addresses, referrers, user agents, or cookies for analytics, and these counts are not unique visitors or Search Console clicks."),
@@ -2362,10 +2402,10 @@ INFO_PAGES = {
     "editorial": {
         "eyebrow": "EDITORIAL POLICY",
         "title": "Useful, relevant, and reviewed.",
-        "description": "We consider home and interior articles that give readers specific, original help.",
+        "description": "We consider original articles that give readers specific, useful help in the topics we cover.",
         "sections": [
-            ("Publication and review", "Client account articles remain private until an admin reviews and approves them for publication. Contributors must confirm they own the work or have authority to grant publication rights. Other content managed by the editorial team is also reviewed for relevance, originality, clarity, factual support, and appropriate sourcing before publication."),
-            ("AI-assisted articles", "AI tools may assist with drafting. AI-generated client articles enter the editorial review queue and are published only after admin approval; a human review is shown when a reviewer and review date are recorded."),
+            ("Publication and review", "Guest articles sent by email are reviewed by the editorial team and are not published unless an editor approves them. Contributors must own the work or have authority to grant publication rights. Content is reviewed for relevance, originality, clarity, factual support, and appropriate sourcing before publication."),
+            ("AI-assisted articles", "We do not accept AI-generated or spun guest posts. Content published by the editorial team is reviewed before publication."),
             ("Reprint permission", "Submitters must own the submitted work or have authority to license it. By publishing, they grant the publication a non-exclusive, royalty-free license to reproduce, display, format, and promote the article on its website. They confirm that submitted details and permissions are accurate. Publication does not guarantee traffic or rankings."),
             ("Syndicated articles", "If the same article is already published elsewhere, submitters must provide its original URL. They may request that our copy use that URL as its canonical; the publication may correct canonical metadata when needed."),
             ("Commercial relationships", "Paid, gifted, or otherwise sponsored relationships must be disclosed clearly. Editorial inclusion does not promise traffic, rankings, or sales."),
@@ -2382,8 +2422,8 @@ def build_faq_schema(page_key):
             ("How do you choose what to publish?", "We prioritize useful, original guidance and clear, trustworthy advice that helps real readers."),
         ],
         "contact": [
-            ("How do I submit an article?", "Create a client account, generate or write an article, confirm your publication rights, and submit it for editorial review. The editorial team will email you when it has been published."),
-            ("Are client articles reviewed before publication?", "Yes. A client article stays private until the editorial team reviews and approves it for publication."),
+                ("How do I submit an article?", "Email your original article or a short pitch to the address on our Write for Us page. No account or signup is needed. The editorial team reviews every submission and only publishes approved articles."),
+                ("Are articles published automatically?", "No. The editorial team reviews each guest submission and publishes it only if it is approved."),
         ],
     }
     items = faq_map.get(page_key, [])
@@ -2421,6 +2461,46 @@ def about_page():
 @app.route("/contact")
 def contact_page():
     return render_information_page("contact", "contact_page")
+
+
+@app.route("/write-for-us")
+def write_for_us():
+    niche = current_niche()
+    site_settings = load_site_settings()
+    topics = {
+        "home-decor": [
+            "Room decor, styling, and small-space design",
+            "DIY and budget-friendly home projects",
+            "Room-by-room organization and storage",
+            "Lighting, color, and practical design ideas",
+            "Seasonal decor and comfortable living",
+        ],
+        "tech": [
+            "Useful software, apps, and digital tools",
+            "AI, productivity, and modern work",
+            "Consumer technology and connected living",
+            "Cybersecurity, privacy, and digital wellbeing",
+            "Practical explainers on emerging technology",
+        ],
+    }
+    canonical = canonical_url("write_for_us")
+    page_title = f"Write for {site_settings['site_name']}"
+    description = f"Share an original article with {site_settings['site_name']}. Read our guest post topics and submission guidelines."
+    schema = {
+        "@context": "https://schema.org",
+        "@type": "WebPage",
+        "name": page_title,
+        "description": description,
+        "url": canonical,
+    }
+    return render_template(
+        "write_for_us.html",
+        canonical=canonical,
+        schema=schema,
+        page_title=page_title,
+        page_description=description,
+        guest_topics=topics.get(niche, topics["home-decor"]),
+    )
 
 
 @app.route("/privacy")
@@ -2476,7 +2556,7 @@ def protect_admin_routes():
 def record_public_page_view(response):
     public_endpoints = {
         "home", "public_blog", "public_article", "about_page", "contact_page",
-        "privacy_page", "editorial_policy_page", "public_site_page",
+        "privacy_page", "editorial_policy_page", "write_for_us", "public_site_page",
     }
     user_agent = request.headers.get("User-Agent", "").casefold()
     if (APP_ENV != "production" or request.method != "GET" or response.status_code != 200
@@ -3895,9 +3975,7 @@ def admin_backup():
 
 @app.route("/submit", methods=["GET", "POST"])
 def submit_article():
-    if signed_in_client() is not None:
-        return redirect(url_for("client_article_new"))
-    return redirect(url_for("client_signup"))
+    return redirect(url_for("write_for_us"))
 
 
 @app.route("/keywords", methods=["GET", "POST"])
@@ -4275,6 +4353,9 @@ def public_article(slug):
     article["reading_time_minutes"] = article_reading_minutes(article)
     article["author"] = article.get("author") or editorial_team_name()
     article["author_bio"] = article.get("author_bio") or os.getenv("EDITORIAL_TEAM_BIO", "").strip()
+    article["article_html"], article_table_of_contents = add_article_table_of_contents(
+        article["article_html"]
+    )
     canonical = article_canonical_url(article, slug=slug)
     schema = build_article_schema(article, canonical)
     related = related_articles(article, articles)
@@ -4307,6 +4388,7 @@ def public_article(slug):
         canonical=canonical,
         schema=schema,
         related_articles=related,
+        article_table_of_contents=article_table_of_contents,
     )
 
 
@@ -4340,6 +4422,7 @@ def sitemap_xml():
     urls = [
         (canonical_url("home"), None),
         (canonical_url("public_blog"), None),
+        (canonical_url("write_for_us"), None),
         (canonical_url("about_page"), None),
         (canonical_url("contact_page"), None),
         (canonical_url("privacy_page"), None),

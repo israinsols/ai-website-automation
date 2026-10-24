@@ -83,6 +83,22 @@ class SiteManagementTests(unittest.TestCase):
     def test_public_profiles_have_distinct_niche_specific_visual_themes(self):
         home = self.client.get("/")
         self.assertIn(b"public-profile-home-decor", home.data)
+        self.assertIn(b'src="/static/urban-decor-styles-logo.png"', home.data)
+        self.assertIn(b'alt="Urban Decor Styles"', home.data)
+        self.assertIn(b'class="home-footer-logo"', home.data)
+        for path in ("/blog", "/about"):
+            with self.subTest(path=path):
+                response = self.client.get(path)
+                self.assertIn(b'src="/static/urban-decor-styles-logo.png"', response.data)
+                self.assertIn(b'class="public-footer-logo"', response.data)
+        logo = self.client.get("/static/urban-decor-styles-logo.png")
+        self.assertEqual(logo.status_code, 200)
+        self.assertTrue(logo.data.startswith(b"\x89PNG\r\n\x1a\n"))
+        with Image.open(BytesIO(logo.data)) as logo_image:
+            left, _, right, _ = logo_image.convert("RGBA").getchannel("A").getbbox()
+            self.assertLessEqual(left, 3)
+            self.assertLessEqual(logo_image.width - right, 3)
+        logo.close()
         self.assertIn(b"--primary: #8b7350", home.data)
         self.assertIn(b"--bg: #f5f1e8", home.data)
         self.assertIn(b'class="hero-image"', home.data)
@@ -101,6 +117,7 @@ class SiteManagementTests(unittest.TestCase):
                 response = self.client.get(path)
                 self.assertEqual(response.status_code, 200)
                 self.assertIn(b"public-profile-tech", response.data)
+                self.assertNotIn(b"urban-decor-styles-logo.png", response.data)
                 self.assertIn(b"--primary: #5ee1f2", response.data)
                 self.assertIn(b"--bg: #0a1220", response.data)
                 if path == "/":

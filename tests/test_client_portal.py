@@ -352,10 +352,10 @@ class ClientPortalTests(unittest.TestCase):
 
     def test_client_session_cannot_access_admin_workspace_routes(self):
         self.sign_up()
-        self.assertEqual(self.client.get("/submit").location, "/client/articles/new")
+        self.assertEqual(self.client.get("/submit").location, "/write-for-us")
         home_page = self.client.get("/")
-        self.assertIn(b'href="/submit">Submit Article</a>', home_page.data)
-        self.assertIn(b"href=\"/client\" class=\"btn btn-primary\">My client dashboard</a>", home_page.data)
+        self.assertIn(b'href="/write-for-us">Write for Us</a>', home_page.data)
+        self.assertNotIn(b"My client dashboard", home_page.data)
         self.assertNotIn(b"Client sign in", home_page.data)
         self.assertNotIn(b"Client sign up", home_page.data)
         for path in ("/dashboard", "/articles", "/site-manager", "/admin/backup", "/reports/traffic"):
@@ -365,7 +365,7 @@ class ClientPortalTests(unittest.TestCase):
                 self.assertEqual(response.location, "/client")
 
         dashboard = self.client.get("/")
-        self.assertIn(b"My client dashboard", dashboard.data)
+        self.assertNotIn(b"My client dashboard", dashboard.data)
         self.assertNotIn(b"Admin sign in", dashboard.data)
         self.assertNotIn(b"href=\"/dashboard\"", dashboard.data)
 
@@ -411,14 +411,14 @@ class ClientPortalTests(unittest.TestCase):
     def test_anonymous_submit_article_link_never_renders_admin_workspace(self):
         response = self.client.get("/submit")
         self.assertEqual(response.status_code, 302)
-        self.assertEqual(response.location, "/client/signup")
+        self.assertEqual(response.location, "/write-for-us")
         signup = self.client.get(response.location)
         self.assertEqual(signup.status_code, 200)
         self.assertNotIn(b"Admin sign in", signup.data)
         self.assertNotIn(b"WORKSPACE / SUBMIT", signup.data)
         home_page = self.client.get("/")
-        self.assertIn(b'href="/submit">Submit Article</a>', home_page.data)
-        self.assertIn(b'href="/submit" class="btn btn-primary">Submit an article</a>', home_page.data)
+        self.assertIn(b'href="/write-for-us">Write for Us</a>', home_page.data)
+        self.assertIn(b'href="/write-for-us" class="btn btn-primary">Write for Us</a>', home_page.data)
         self.assertNotIn(b"Client sign in", home_page.data)
         self.assertNotIn(b"Client sign up", home_page.data)
 

@@ -422,7 +422,7 @@ class AutopilotTests(unittest.TestCase):
         self.assertIn(b'href="https://example.com/source"', response.data)
         self.assertNotIn(b"javascript:alert(1)", response.data)
 
-    def test_submit_route_sends_anonymous_visitors_to_client_signup(self):
+    def test_submit_route_sends_visitors_to_write_for_us(self):
         client = app.app.test_client()
         self.assertEqual(client.post("/submit", data={}).status_code, 400)
         response = self.post_client_submission(client, {
@@ -431,7 +431,7 @@ class AutopilotTests(unittest.TestCase):
             "content": "<p>Article text for editorial review.</p>",
         })
         self.assertEqual(response.status_code, 302)
-        self.assertEqual(response.location, "/client/signup")
+        self.assertEqual(response.location, "/write-for-us")
         self.assertEqual(app.load_articles(), [])
 
     def test_legacy_submit_post_cannot_create_guest_article(self):
@@ -443,6 +443,7 @@ class AutopilotTests(unittest.TestCase):
             "rights_confirmed": "on",
         })
         self.assertEqual(response.status_code, 302)
+        self.assertEqual(response.location, "/write-for-us")
         self.assertEqual(app.load_articles(), [])
 
     def test_client_submission_email_limit_blocks_spam(self):
@@ -563,7 +564,7 @@ class AutopilotTests(unittest.TestCase):
         })
         response = client.get("/submit")
         self.assertEqual(response.status_code, 302)
-        self.assertEqual(response.location, "/client/articles/new")
+        self.assertEqual(response.location, "/write-for-us")
         self.assertEqual(app.load_articles(), [])
 
     def test_traffic_report_counts_production_human_views_but_not_bots(self):

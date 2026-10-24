@@ -24,16 +24,13 @@
   <body class="public-home {{ site_profile_class }}" style="--primary: {{ site_theme.primary }}; --primary-dark: {{ site_theme.primary }}; --bg: {{ site_theme.background }};">
     <header class="topbar" id="top">
       <div class="container nav">
-        <a class="brand" href="{{ url_for('home') }}">{{ site_name }}</a>
+        <a class="brand" href="{{ url_for('home') }}">{% if site_logo_url %}<img class="brand-logo" src="{{ site_logo_url }}" alt="Urban Decor Styles">{% else %}{{ site_name }}{% endif %}</a>
         <button class="site-menu-toggle" type="button" data-menu-toggle aria-expanded="false" aria-controls="site-navigation">
           <span class="visually-hidden">Open navigation menu</span><span class="site-menu-icon" aria-hidden="true"></span>
         </button>
         <nav id="site-navigation" class="site-navigation" aria-label="Main navigation">
           <a href="{{ url_for('saved_articles') }}">Saved stories</a>
           {% for item in site_navigation %}<a href="{{ item.url }}"{% if item.url.startswith('http') %} target="_blank" rel="noopener noreferrer"{% endif %}>{{ item.label }}</a>{% endfor %}
-          {% if client_logged_in %}
-            <a href="{{ url_for('client_portal') }}" class="btn btn-primary">My client dashboard</a>
-          {% endif %}
         </nav>
       </div>
     </header>
@@ -51,7 +48,7 @@
               {{ site_description }}
             </p>
             <div class="actions">
-              <a href="{{ url_for('client_portal') if client_logged_in else url_for('submit_article') }}" class="btn btn-primary">{% if client_logged_in %}Open client dashboard{% else %}Submit an article{% endif %}</a>
+              <a href="{{ url_for('write_for_us') }}" class="btn btn-primary">Write for Us</a>
               <a href="#features" class="btn btn-secondary">See how it works</a>
             </div>
           </div>
@@ -262,7 +259,7 @@
       <div class="container">
         <div class="home-footer-main">
           <div class="home-footer-brand">
-            <a class="home-footer-wordmark" href="{{ url_for('home') }}">{{ site_name }}<span>.</span></a>
+            {% if site_logo_url %}<a class="home-footer-logo" href="{{ url_for('home') }}" aria-label="Urban Decor Styles home"><img src="{{ site_logo_url }}" alt="Urban Decor Styles"></a>{% else %}<a class="home-footer-wordmark" href="{{ url_for('home') }}">{{ site_name }}<span>.</span></a>{% endif %}
             <p>{{ site_description }}</p>
             <a class="home-footer-cta" href="{{ url_for('public_blog') }}">{% if selected_niche == 'tech' %}Explore the signal{% else %}Find your next idea{% endif %}<span aria-hidden="true">↗</span></a>
           </div>
