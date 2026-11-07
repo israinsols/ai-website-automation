@@ -85,18 +85,16 @@ jobs:
           git diff --cached --quiet || git commit -m "Automate bilalbill content research"
           git push
       - name: Configure GitHub Pages
-        if: ${{ vars.BILALBILL_HOSTING != 'cloudflare' }}
+        if: ${{ vars.BILALBILL_HOSTING != 'cloudflare' && vars.BILALBILL_PAGES_ENABLED == 'true' }}
         uses: actions/configure-pages@v5
-        with:
-          enablement: true
       - name: Upload static site
-        if: ${{ vars.BILALBILL_HOSTING != 'cloudflare' }}
+        if: ${{ vars.BILALBILL_HOSTING != 'cloudflare' && vars.BILALBILL_PAGES_ENABLED == 'true' }}
         uses: actions/upload-pages-artifact@v3
         with:
           path: bilalbill-site/public
 
   deploy:
-    if: ${{ vars.BILALBILL_HOSTING != 'cloudflare' }}
+    if: ${{ vars.BILALBILL_HOSTING != 'cloudflare' && vars.BILALBILL_PAGES_ENABLED == 'true' }}
     needs: build
     runs-on: ubuntu-latest
     environment:
@@ -112,7 +110,7 @@ jobs:
 
   notify:
     needs: deploy
-    if: ${{ vars.BILALBILL_HOSTING != 'cloudflare' && vars.BILALBILL_BASE_PATH == '/' }}
+    if: ${{ vars.BILALBILL_HOSTING != 'cloudflare' && vars.BILALBILL_PAGES_ENABLED == 'true' && vars.BILALBILL_BASE_PATH == '/' }}
     runs-on: ubuntu-latest
     env:
       SITE_NAME: ${{ vars.BILALBILL_SITE_NAME || 'bilalbill' }}
