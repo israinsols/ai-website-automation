@@ -114,6 +114,22 @@ def test_build_contains_only_published_posts_and_valid_seo(tmp_path):
     assert (public / "rss.xml").is_file()
 
 
+def test_real_editorial_article_has_publishable_length_and_four_faqs():
+    project_root = Path(__file__).resolve().parents[1]
+    article = frontmatter.load(
+        project_root / "content" / "posts" / "android-phone-security-backup-guide.md"
+    )
+    text = article.content
+    faq = text.split("## Frequently Asked Questions", 1)[1]
+    questions = re.findall(r"^### .+\?\s*$", faq, re.MULTILINE)
+
+    assert article["status"] == "published"
+    assert "bilalbill" in article["title"].casefold()
+    assert 900 <= len(re.findall(r"\b[\w'-]+\b", text)) <= 1300
+    assert len(questions) == 4
+    assert len(article["verify_before_publish"]) == 3
+
+
 def test_github_pages_project_path_prefixes_local_links(tmp_path):
     config = config_at(tmp_path, "/ai-website-automation")
     shutil.copytree(Path(__file__).resolve().parents[1] / "templates", config.root / "templates")
