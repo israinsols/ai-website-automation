@@ -1,6 +1,7 @@
 import pytest
+import requests
 
-from generator import QualityError, validate_article
+from generator import QualityError, _gemini_request, validate_article
 
 
 def valid_article():
@@ -53,3 +54,37 @@ def test_quality_gate_rejects_repeated_content():
     article = valid_article()
     with pytest.raises(QualityError, match="similar"):
         validate_article(article, "bilalbill", [article["markdown"]])
+
+
+def test_gemini_request_retries_temporary_service_errors(monkeypatch):
+    class Response:
+        def __init__(self, status, payload=None):
+            self.status_code = status
+            self.text = "temporarily unavailable"
+            self._payload = payload
+
+        def raise_for_status(self):
+            if self.status_code >= 400:
+                raise requests.HTTPError("temporary error", response=self)
+
+        def json(self):
+            return self._payload
+
+    class Session:
+        def __init__(self):
+            self.calls = 0
+
+        def post(self, *args, **kwargs):
+            self.calls += 1
+            if self.calls == 1:
+                return Response(503)
+            return Response(
+                200,
+                {"candidates": [{"content": {"parts": [{"text": "{\"ok\": true}"}]}}]},
+            )
+
+    monkeypatch.setattr("generator.time.sleep", lambda _seconds: None)
+    session = Session()
+
+    assert _gemini_request("prompt", "test-key", session) == '{"ok": true}'
+    assert session.calls == 2

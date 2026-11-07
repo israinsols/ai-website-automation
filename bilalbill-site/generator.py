@@ -6,6 +6,7 @@ import json
 import os
 import re
 import unicodedata
+import time
 from datetime import date
 from pathlib import Path
 from typing import Any
@@ -182,26 +183,36 @@ Requirements:
 
 
 def _gemini_request(prompt: str, api_key: str, session: requests.Session) -> str:
-    try:
-        response = session.post(
-            GEMINI_URL,
-            headers={"x-goog-api-key": api_key},
-            json={
-                "contents": [{"parts": [{"text": prompt}]}],
-                "generationConfig": {
-                    "responseMimeType": "application/json",
-                    "temperature": 0.6,
-                },
-            },
-            timeout=90,
-        )
-        response.raise_for_status()
-    except requests.RequestException as exc:
-        response_text = exc.response.text[:500] if exc.response is not None else str(exc)
-        status = exc.response.status_code if exc.response is not None else "network error"
-        raise RuntimeError(
-            f"Gemini model {GEMINI_MODEL!r} request failed ({status}): {response_text}"
-        ) from exc
+    request_data = {
+        "contents": [{"parts": [{"text": prompt}]}],
+        "generationConfig": {
+            "responseMimeType": "application/json",
+            "temperature": 0.6,
+        },
+    }
+    for attempt in range(3):
+        try:
+            response = session.post(
+                GEMINI_URL,
+                headers={"x-goog-api-key": api_key},
+                json=request_data,
+                timeout=90,
+            )
+            response.raise_for_status()
+            break
+        except requests.RequestException as exc:
+            status = exc.response.status_code if exc.response is not None else None
+            retryable = status is None or status == 429 or status >= 500
+            if retryable and attempt < 2:
+                time.sleep(2**attempt)
+                continue
+            response_text = exc.response.text[:500] if exc.response is not None else str(exc)
+            label = status if status is not None else "network error"
+            raise RuntimeError(
+                f"Gemini model {GEMINI_MODEL!r} request failed ({label}): {response_text}"
+            ) from exc
+    else:
+        raise RuntimeError(f"Gemini model {GEMINI_MODEL!r} request failed after retries.")
     payload = response.json()
     try:
         return payload["candidates"][0]["content"]["parts"][0]["text"]
