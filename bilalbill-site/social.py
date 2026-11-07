@@ -30,13 +30,17 @@ def _caption(title: str, description: str, platform: str, session: requests.Sess
         f"for this article. No fabricated claims or clickbait. Title: {title}. "
         f"Summary: {description}"
     )
-    response = session.post(
-        GEMINI_URL,
-        headers={"x-goog-api-key": key},
-        json={"contents": [{"parts": [{"text": prompt}]}]},
-        timeout=45,
-    )
-    response.raise_for_status()
+    try:
+        response = session.post(
+            GEMINI_URL,
+            headers={"x-goog-api-key": key},
+            json={"contents": [{"parts": [{"text": prompt}]}]},
+            timeout=45,
+        )
+        response.raise_for_status()
+    except requests.RequestException as exc:
+        status = exc.response.status_code if exc.response is not None else "network error"
+        raise RuntimeError(f"Gemini social-caption request failed ({status}).") from exc
     try:
         caption = response.json()["candidates"][0]["content"]["parts"][0]["text"].strip()
     except (KeyError, IndexError, TypeError) as exc:

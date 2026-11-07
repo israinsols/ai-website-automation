@@ -32,6 +32,7 @@ jobs:
       AUTO_PUBLISH: "False"
       KEYWORD_SEEDS: ${{ vars.BILALBILL_KEYWORD_SEEDS || 'bilalbill,technology Pakistan,tech guides Pakistan' }}
       GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+      GEMINI_MODEL: ${{ vars.GEMINI_MODEL || 'gemini-3.8-flash' }}
       INDEXNOW_KEY: ${{ secrets.INDEXNOW_KEY }}
       GSC_SERVICE_ACCOUNT_JSON: ${{ secrets.GSC_SERVICE_ACCOUNT_JSON }}
       GSC_SITE_URL: ${{ vars.GSC_SITE_URL || 'sc-domain:bilalbill.com' }}
@@ -64,9 +65,14 @@ jobs:
         working-directory: bilalbill-site
         run: python main.py --research
       - name: Generate reviewable drafts
+        id: generate
+        continue-on-error: true
         if: ${{ env.GEMINI_API_KEY != '' }}
         working-directory: bilalbill-site
         run: python main.py --generate
+      - name: Report generation error and continue with reviewed content
+        if: ${{ steps.generate.outcome == 'failure' }}
+        run: echo "::warning::Gemini draft generation failed. No unreviewed content was published; the existing reviewed site will still be built and deployed."
       - name: Skip generation when Gemini key is not configured
         if: ${{ env.GEMINI_API_KEY == '' }}
         run: echo "::warning::GEMINI_API_KEY is missing; researched keywords will be saved, but no article drafts will be generated."
@@ -124,6 +130,7 @@ jobs:
       GSC_SERVICE_ACCOUNT_JSON: ${{ secrets.GSC_SERVICE_ACCOUNT_JSON }}
       GSC_SITE_URL: ${{ vars.GSC_SITE_URL || 'sc-domain:bilalbill.com' }}
       GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+      GEMINI_MODEL: ${{ vars.GEMINI_MODEL || 'gemini-3.8-flash' }}
       SOCIAL_TELEGRAM: ${{ vars.SOCIAL_TELEGRAM || 'False' }}
       TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
       TELEGRAM_CHANNEL_ID: ${{ secrets.TELEGRAM_CHANNEL_ID }}

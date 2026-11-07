@@ -27,7 +27,7 @@ Copy-Item .env.example .env
 
 Edit `.env`. Set the correct niche, language, author, email, and seed phrases before research. The example uses `technology` and `en-PK`; change those if the site will cover another subject or primarily Urdu. Put credentials only in `.env` locally and GitHub Actions secrets in production. Never commit `.env`, API keys, or the Search Console private key.
 
-For Gemini, create an API key in Google AI Studio and set `GEMINI_API_KEY`. Gemini free-tier access, model availability, and quotas can change; generation stops with a clear error if there is no key or available quota. The requested model is `gemini-2.0-flash`.
+For Gemini, create an API key in Google AI Studio and set `GEMINI_API_KEY`. The default model is `gemini-3.8-flash`; override it locally with `GEMINI_MODEL` or in GitHub with the `GEMINI_MODEL` repository variable. Gemini free-tier access, model availability, and quotas can change; a failed generation is logged and the workflow continues to build only existing published articles.
 
 ## 2. Research, generate, and review
 

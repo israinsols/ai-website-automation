@@ -17,8 +17,11 @@ import db
 from config import SiteConfig
 from db import initialize, mark_keyword_used, next_keyword, save_article
 
-GEMINI_MODEL = "gemini-2.0-flash"
-GEMINI_URL = f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent"
+GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.8-flash").strip()
+GEMINI_URL = (
+    "https://generativelanguage.googleapis.com/v1beta/models/"
+    f"{GEMINI_MODEL}:generateContent"
+)
 WORD_RE = re.compile(r"\b[\w'-]+\b", re.UNICODE)
 PLACEHOLDER_RE = re.compile(
     r"\b(?:lorem ipsum|insert (?:text|content|keyword|link)|your (?:brand|company) here|"
@@ -179,16 +182,26 @@ Requirements:
 
 
 def _gemini_request(prompt: str, api_key: str, session: requests.Session) -> str:
-    response = session.post(
-        GEMINI_URL,
-        headers={"x-goog-api-key": api_key},
-        json={
-            "contents": [{"parts": [{"text": prompt}]}],
-            "generationConfig": {"responseMimeType": "application/json", "temperature": 0.6},
-        },
-        timeout=90,
-    )
-    response.raise_for_status()
+    try:
+        response = session.post(
+            GEMINI_URL,
+            headers={"x-goog-api-key": api_key},
+            json={
+                "contents": [{"parts": [{"text": prompt}]}],
+                "generationConfig": {
+                    "responseMimeType": "application/json",
+                    "temperature": 0.6,
+                },
+            },
+            timeout=90,
+        )
+        response.raise_for_status()
+    except requests.RequestException as exc:
+        response_text = exc.response.text[:500] if exc.response is not None else str(exc)
+        status = exc.response.status_code if exc.response is not None else "network error"
+        raise RuntimeError(
+            f"Gemini model {GEMINI_MODEL!r} request failed ({status}): {response_text}"
+        ) from exc
     payload = response.json()
     try:
         return payload["candidates"][0]["content"]["parts"][0]["text"]
