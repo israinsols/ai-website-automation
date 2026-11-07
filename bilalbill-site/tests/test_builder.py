@@ -95,6 +95,12 @@ def test_build_contains_only_published_posts_and_valid_seo(tmp_path):
     assert canonical in locations
     assert not any("unpublished-secret" in item for item in locations)
     assert f'<link rel="canonical" href="{canonical}">' in post_html
+    assert '<img class="cover" src="/images/bilalbill-sample-guide.png"' in post_html
+    assert (public / "images" / "bilalbill-sample-guide.png").is_file()
+    assert (
+        '<meta property="og:image" content="https://bilalbill.com/images/bilalbill-sample-guide.png">'
+        in post_html
+    )
     assert "tracker.example" not in post_html
     assert "<title>bilalbill | Practical technology guides</title>" in home_html
     assert (public / "category" / "technology" / "page" / "2" / "index.html").is_file()
@@ -134,11 +140,31 @@ def test_github_pages_project_path_prefixes_local_links(tmp_path):
     config = config_at(tmp_path, "/ai-website-automation")
     shutil.copytree(Path(__file__).resolve().parents[1] / "templates", config.root / "templates")
     shutil.copytree(Path(__file__).resolve().parents[1] / "static", config.root / "static")
+    config.posts_dir.mkdir(parents=True)
     config.pages_dir.mkdir(parents=True)
+    article = frontmatter.Post(
+        "A guide for this test.",
+        title="Pages image test",
+        slug="pages-image-test",
+        meta_description="A test cover image.",
+        category="Technology",
+        tags=[],
+        author="Bilal",
+        date="2026-11-07",
+        status="published",
+    )
+    (config.posts_dir / "pages-image-test.md").write_text(
+        frontmatter.dumps(article), encoding="utf-8"
+    )
 
     build_site(config)
     home_html = (config.public_dir / "index.html").read_text(encoding="utf-8")
+    post_html = (
+        config.public_dir / "pages-image-test" / "index.html"
+    ).read_text(encoding="utf-8")
 
     assert 'href="/ai-website-automation/about/"' in home_html
     assert 'href="/ai-website-automation/static/site.css"' in home_html
+    assert 'src="/ai-website-automation/images/pages-image-test.png"' in post_html
+    assert (config.public_dir / "images" / "pages-image-test.png").is_file()
     assert not (config.public_dir / "CNAME").exists()

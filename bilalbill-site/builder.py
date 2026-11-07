@@ -95,6 +95,7 @@ def _read_posts(config: SiteConfig) -> tuple[list[dict[str, Any]], list[str]]:
                 "status": status,
                 "canonical": canonical,
                 "social_image": canonical_url(config, f"/images/{slug}.png"),
+                "image_src": f"/images/{slug}.png",
                 "thumbnail": f"/images/{slug}-thumb.webp",
                 "cover_bytes": cover,
                 "thumbnail_bytes": thumbnail,

@@ -6,7 +6,7 @@
     <p class="eyebrow"><a href="/category/{{ post.category_slug }}/">{{ post.category }}</a></p>
     <h1>{{ post.title }}</h1>
     <p class="muted">By {{ post.author }} · {{ post.date }} · {{ post.reading_time }} min read</p>
-    <img class="cover" src="{{ post.social_image }}" alt="{{ post.title }}" width="1200" height="630" fetchpriority="high">
+    <img class="cover" src="{{ post.image_src }}" alt="{{ post.title }}" width="1200" height="630" fetchpriority="high">
   </header>
   {% if toc %}
   <nav class="toc" aria-label="Table of contents">
