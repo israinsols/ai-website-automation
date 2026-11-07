@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+{% block content %}
+<nav class="breadcrumbs" aria-label="Breadcrumb"><a href="/">Home</a> / <a href="/category/{{ post.category_slug }}/">{{ post.category }}</a> / <span>{{ post.title }}</span></nav>
+<article class="article">
+  <header class="article-header">
+    <p class="eyebrow"><a href="/category/{{ post.category_slug }}/">{{ post.category }}</a></p>
+    <h1>{{ post.title }}</h1>
+    <p class="muted">By {{ post.author }} · {{ post.date }} · {{ post.reading_time }} min read</p>
+    <img class="cover" src="{{ post.social_image }}" alt="{{ post.title }}" width="1200" height="630" fetchpriority="high">
+  </header>
+  {% if toc %}
+  <nav class="toc" aria-label="Table of contents">
+    <h2>On this page</h2>
+    <ol>{% for item in toc %}<li class="toc-level-{{ item.level }}"><a href="#{{ item.id }}">{{ item.title }}</a></li>{% endfor %}</ol>
+  </nav>
+  {% endif %}
+  <div class="article-content">{{ body_html|safe }}</div>
+  <p class="muted">Please verify important facts and current details before acting on them.</p>
+</article>
+{% if related %}
+<section class="section">
+  <h2>Related articles</h2>
+  <ul>{% for item in related %}<li><a href="/{{ item.slug }}/">{{ item.title }}</a></li>{% endfor %}</ul>
+</section>
+{% endif %}
+{% if post.tags %}
+<p class="tag-list">{% for tag in post.tags %}<a class="tag" href="/tag/{{ tag_slugs[loop.index0] }}/">{{ tag }}</a>{% endfor %}</p>
+{% endif %}
+<p class="home-link">Discover more at <a href="/"><strong>bilalbill</strong></a>.</p>
+{% endblock %}

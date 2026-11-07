@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="{{ language }}">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <meta name="theme-color" content="#102a43">
+  <title>{{ page_title }}</title>
+  <meta name="description" content="{{ description }}">
+  <link rel="canonical" href="{{ canonical }}">
+  <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
+  <link rel="alternate" type="application/rss+xml" title="{{ site_name }} RSS" href="/rss.xml">
+  <meta property="og:type" content="{{ og_type }}">
+  <meta property="og:site_name" content="{{ site_name }}">
+  <meta property="og:title" content="{{ page_title }}">
+  <meta property="og:description" content="{{ description }}">
+  <meta property="og:url" content="{{ canonical }}">
+  <meta property="og:image" content="{{ social_image }}">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="{{ page_title }}">
+  <meta name="twitter:description" content="{{ description }}">
+  <meta name="twitter:image" content="{{ social_image }}">
+  <style>
+    :root{font-family:system-ui,-apple-system,"Segoe UI",sans-serif;color-scheme:light dark}
+    *{box-sizing:border-box}body{margin:0;line-height:1.7}
+    .wrap{width:min(72rem,92%);margin-inline:auto}
+    a{color:inherit}img{max-width:100%;height:auto}
+    .skip{position:absolute;left:-9999px}.skip:focus{left:1rem;top:1rem;background:#fff;padding:.5rem}
+  </style>
+  <link rel="stylesheet" href="/static/site.css">
+  <script type="application/ld+json">{{ json_ld | tojson }}</script>
+</head>
+<body>
+  <a class="skip" href="{{ base_path }}/#main">Skip to content</a>
+  <header class="site-header">
+    <div class="wrap header-inner">
+      <a class="brand" href="/" aria-label="{{ site_name }} homepage">{{ site_name }}</a>
+      <nav aria-label="Main navigation">
+        <a href="/">Home</a>
+        <a href="/about/">About</a>
+        <a href="/contact/">Contact</a>
+      </nav>
+    </div>
+  </header>
+  <main id="main" class="wrap">
+    {% block content %}{% endblock %}
+  </main>
+  <footer class="site-footer">
+    <div class="wrap footer-inner">
+      <span>&copy; {{ current_year }} {{ site_name }}</span>
+      <nav aria-label="Legal">
+        <a href="/privacy/">Privacy</a>
+        <a href="/disclaimer/">Disclaimer</a>
+      </nav>
+    </div>
+  </footer>
+</body>
+</html>

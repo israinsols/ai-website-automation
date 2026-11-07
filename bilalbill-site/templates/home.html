@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="hero">
+  <p class="eyebrow">{{ niche }}</p>
+  <h1>{{ site_name }}: practical {{ niche }} guides</h1>
+  <p>Clear, carefully reviewed articles, useful answers, and honest recommendations.</p>
+  <a class="button" href="#latest-posts">Explore the latest articles</a>
+</section>
+<section id="latest-posts" class="section">
+  <div class="section-heading"><h2>Latest articles</h2><span>{{ posts|length }} published</span></div>
+  {% if posts %}
+  <div class="post-grid">
+    {% for post in posts %}
+    <article class="card">
+      <a class="card-image" href="/{{ post.slug }}/">
+        <img src="{{ post.thumbnail }}" alt="" width="400" height="210" loading="lazy">
+      </a>
+      <div class="card-body">
+        <p class="eyebrow"><a href="/category/{{ post.category_slug }}/">{{ post.category }}</a></p>
+        <h3><a href="/{{ post.slug }}/">{{ post.title }}</a></h3>
+        <p>{{ post.meta_description }}</p>
+        <p class="muted">{{ post.date }} · {{ post.reading_time }} min read</p>
+      </div>
+    </article>
+    {% endfor %}
+  </div>
+  {% else %}
+  <p>New articles are being prepared. Check back soon.</p>
+  {% endif %}
+</section>
+{% if categories %}
+<section class="section">
+  <h2>Browse topics</h2>
+  <div class="tag-list">
+    {% for category in categories %}
+    <a class="tag" href="/category/{{ category.slug }}/">{{ category.name }} <span>{{ category.count }}</span></a>
+    {% endfor %}
+  </div>
+</section>
+{% endif %}
+{% endblock %}

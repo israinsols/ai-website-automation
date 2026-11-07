@@ -1,0 +1,167 @@
+name: bilalbill daily static site
+
+on:
+  schedule:
+    - cron: "15 3 * * *"
+    - cron: "45 3 * * 1"
+  workflow_dispatch:
+
+concurrency:
+  group: bilalbill-pages
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      contents: write
+      pages: write
+    env:
+      SITE_NAME: ${{ vars.BILALBILL_SITE_NAME || 'bilalbill' }}
+      SITE_DOMAIN: ${{ vars.BILALBILL_SITE_DOMAIN || 'bilalbill.com' }}
+      SITE_BASE_PATH: ${{ vars.BILALBILL_BASE_PATH || '/ai-website-automation' }}
+      SITE_NICHE: ${{ vars.BILALBILL_SITE_NICHE || 'technology' }}
+      SITE_LANGUAGE: ${{ vars.BILALBILL_SITE_LANGUAGE || 'en-PK' }}
+      SITE_AUTHOR: ${{ vars.BILALBILL_SITE_AUTHOR || 'Bilal' }}
+      CONTACT_EMAIL: ${{ vars.BILALBILL_CONTACT_EMAIL || 'hello@bilalbill.com' }}
+      POSTS_PER_DAY: ${{ vars.BILALBILL_POSTS_PER_DAY || '1' }}
+      AUTO_PUBLISH: "False"
+      KEYWORD_SEEDS: ${{ vars.BILALBILL_KEYWORD_SEEDS || 'bilalbill,technology Pakistan,tech guides Pakistan' }}
+      GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+      INDEXNOW_KEY: ${{ secrets.INDEXNOW_KEY }}
+      GSC_SERVICE_ACCOUNT_JSON: ${{ secrets.GSC_SERVICE_ACCOUNT_JSON }}
+      GSC_SITE_URL: ${{ vars.GSC_SITE_URL || 'sc-domain:bilalbill.com' }}
+      SOCIAL_TELEGRAM: ${{ vars.SOCIAL_TELEGRAM || 'False' }}
+      TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+      TELEGRAM_CHANNEL_ID: ${{ secrets.TELEGRAM_CHANNEL_ID }}
+      SOCIAL_FACEBOOK: ${{ vars.SOCIAL_FACEBOOK || 'False' }}
+      FACEBOOK_PAGE_ID: ${{ secrets.FACEBOOK_PAGE_ID }}
+      FACEBOOK_PAGE_ACCESS_TOKEN: ${{ secrets.FACEBOOK_PAGE_ACCESS_TOKEN }}
+      FACEBOOK_GRAPH_API_VERSION: ${{ vars.FACEBOOK_GRAPH_API_VERSION || 'v23.0' }}
+      SOCIAL_PINTEREST: ${{ vars.SOCIAL_PINTEREST || 'False' }}
+      PINTEREST_ACCESS_TOKEN: ${{ secrets.PINTEREST_ACCESS_TOKEN }}
+      PINTEREST_BOARD_ID: ${{ secrets.PINTEREST_BOARD_ID }}
+    steps:
+      - name: Check out site and content
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref }}
+          token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: bilalbill-site/requirements.txt
+      - name: Install Python dependencies
+        working-directory: bilalbill-site
+        run: python -m pip install -r requirements.txt
+      - name: Research keyword ideas
+        working-directory: bilalbill-site
+        run: python main.py --research
+      - name: Generate reviewable drafts
+        if: ${{ env.GEMINI_API_KEY != '' }}
+        working-directory: bilalbill-site
+        run: python main.py --generate
+      - name: Skip generation when Gemini key is not configured
+        if: ${{ env.GEMINI_API_KEY == '' }}
+        run: echo "::warning::GEMINI_API_KEY is missing; researched keywords will be saved, but no article drafts will be generated."
+      - name: Build published static site
+        working-directory: bilalbill-site
+        run: python main.py --build
+      - name: Weekly Search Console report
+        if: ${{ github.event.schedule == '45 3 * * 1' && vars.ENABLE_GSC_REPORT == 'true' }}
+        working-directory: bilalbill-site
+        run: python main.py --report
+      - name: Commit generated drafts and automation state
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add bilalbill-site/content/posts bilalbill-site/data/bilalbill.sqlite3
+          git diff --cached --quiet || git commit -m "Automate bilalbill content research"
+          git push
+      - name: Configure GitHub Pages
+        if: ${{ vars.BILALBILL_HOSTING != 'cloudflare' }}
+        uses: actions/configure-pages@v5
+      - name: Upload static site
+        if: ${{ vars.BILALBILL_HOSTING != 'cloudflare' }}
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: bilalbill-site/public
+
+  deploy:
+    if: ${{ vars.BILALBILL_HOSTING != 'cloudflare' }}
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    permissions:
+      pages: write
+      id-token: write
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
+
+  notify:
+    needs: deploy
+    if: ${{ vars.BILALBILL_HOSTING != 'cloudflare' && vars.BILALBILL_BASE_PATH == '/' }}
+    runs-on: ubuntu-latest
+    env:
+      SITE_NAME: ${{ vars.BILALBILL_SITE_NAME || 'bilalbill' }}
+      SITE_DOMAIN: ${{ vars.BILALBILL_SITE_DOMAIN || 'bilalbill.com' }}
+      SITE_BASE_PATH: ${{ vars.BILALBILL_BASE_PATH || '/ai-website-automation' }}
+      SITE_NICHE: ${{ vars.BILALBILL_SITE_NICHE || 'technology' }}
+      SITE_LANGUAGE: ${{ vars.BILALBILL_SITE_LANGUAGE || 'en-PK' }}
+      SITE_AUTHOR: ${{ vars.BILALBILL_SITE_AUTHOR || 'Bilal' }}
+      CONTACT_EMAIL: ${{ vars.BILALBILL_CONTACT_EMAIL || 'hello@bilalbill.com' }}
+      INDEXNOW_KEY: ${{ secrets.INDEXNOW_KEY }}
+      GSC_SERVICE_ACCOUNT_JSON: ${{ secrets.GSC_SERVICE_ACCOUNT_JSON }}
+      GSC_SITE_URL: ${{ vars.GSC_SITE_URL || 'sc-domain:bilalbill.com' }}
+      GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+      SOCIAL_TELEGRAM: ${{ vars.SOCIAL_TELEGRAM || 'False' }}
+      TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+      TELEGRAM_CHANNEL_ID: ${{ secrets.TELEGRAM_CHANNEL_ID }}
+      SOCIAL_FACEBOOK: ${{ vars.SOCIAL_FACEBOOK || 'False' }}
+      FACEBOOK_PAGE_ID: ${{ secrets.FACEBOOK_PAGE_ID }}
+      FACEBOOK_PAGE_ACCESS_TOKEN: ${{ secrets.FACEBOOK_PAGE_ACCESS_TOKEN }}
+      FACEBOOK_GRAPH_API_VERSION: ${{ vars.FACEBOOK_GRAPH_API_VERSION || 'v23.0' }}
+      SOCIAL_PINTEREST: ${{ vars.SOCIAL_PINTEREST || 'False' }}
+      PINTEREST_ACCESS_TOKEN: ${{ secrets.PINTEREST_ACCESS_TOKEN }}
+      PINTEREST_BOARD_ID: ${{ secrets.PINTEREST_BOARD_ID }}
+    steps:
+      - name: Check out source and install tools
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: bilalbill-site/requirements.txt
+      - name: Install Python dependencies
+        working-directory: bilalbill-site
+        run: python -m pip install -r requirements.txt
+      - name: Notify IndexNow and submit sitemap
+        working-directory: bilalbill-site
+        run: |
+          if [ -n "$INDEXNOW_KEY" ]; then
+            python main.py --index
+          else
+            echo "::warning::INDEXNOW_KEY is not configured; skipped indexing notifications."
+          fi
+      - name: Share published articles
+        working-directory: bilalbill-site
+        run: python main.py --share
+      - name: Persist indexing and social deduplication state
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add bilalbill-site/data/bilalbill.sqlite3
+          git diff --cached --quiet || git commit -m "Save bilalbill distribution state"
+          git push

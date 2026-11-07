@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+{% block content %}
+<nav class="breadcrumbs" aria-label="Breadcrumb"><a href="/">Home</a> / <span>{{ heading }}</span></nav>
+<header class="section">
+  <p class="eyebrow">{{ taxonomy }}</p>
+  <h1>{{ heading }}</h1>
+  <p>Published articles about {{ heading }}.</p>
+</header>
+<div class="post-grid">
+  {% for post in posts %}
+  <article class="card">
+    <a class="card-image" href="/{{ post.slug }}/"><img src="{{ post.thumbnail }}" alt="" width="400" height="210" loading="lazy"></a>
+    <div class="card-body"><h2><a href="/{{ post.slug }}/">{{ post.title }}</a></h2><p>{{ post.meta_description }}</p><p class="muted">{{ post.date }} · {{ post.reading_time }} min read</p></div>
+  </article>
+  {% endfor %}
+</div>
+{% if pages > 1 %}
+<nav class="pagination" aria-label="Pagination">
+  {% if page_number > 1 %}<a href="{{ previous_url }}">← Newer</a>{% endif %}
+  <span>Page {{ page_number }} of {{ pages }}</span>
+  {% if page_number < pages %}<a href="{{ next_url }}">Older →</a>{% endif %}
+</nav>
+{% endif %}
+{% endblock %}
