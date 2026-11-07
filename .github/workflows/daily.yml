@@ -87,6 +87,8 @@ jobs:
       - name: Configure GitHub Pages
         if: ${{ vars.BILALBILL_HOSTING != 'cloudflare' }}
         uses: actions/configure-pages@v5
+        with:
+          enablement: true
       - name: Upload static site
         if: ${{ vars.BILALBILL_HOSTING != 'cloudflare' }}
         uses: actions/upload-pages-artifact@v3
